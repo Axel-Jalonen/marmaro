@@ -9,6 +9,33 @@ use crate::bedrock::{self, StreamToken};
 use crate::db::Database;
 use crate::message::{ChatMessage, Conversation, Role, MODELS, REGIONS};
 
+// ── Colors ─────────────────────────────────────────────────────────────
+
+mod colors {
+    use eframe::egui::Color32;
+
+    pub const BG_BASE: Color32 = Color32::from_rgb(22, 22, 26);
+    pub const BG_SIDEBAR: Color32 = Color32::from_rgb(28, 28, 33);
+    pub const BG_USER_MSG: Color32 = Color32::from_rgb(32, 33, 42);
+    pub const BG_ASSISTANT_MSG: Color32 = Color32::from_rgb(26, 26, 30);
+    pub const BG_INPUT: Color32 = Color32::from_rgb(34, 35, 40);
+    pub const BG_TOPBAR: Color32 = Color32::from_rgb(28, 28, 33);
+    pub const BG_MODAL_CARD: Color32 = Color32::from_rgb(32, 33, 38);
+
+    pub const ACCENT: Color32 = Color32::from_rgb(100, 140, 255);
+    pub const ACCENT_DIM: Color32 = Color32::from_rgb(70, 100, 190);
+    pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(220, 222, 228);
+    pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(140, 144, 158);
+    pub const TEXT_MUTED: Color32 = Color32::from_rgb(90, 94, 108);
+    pub const ERROR: Color32 = Color32::from_rgb(255, 110, 110);
+    pub const BORDER: Color32 = Color32::from_rgb(50, 52, 60);
+    pub const HOVER: Color32 = Color32::from_rgb(42, 44, 54);
+    pub const SELECTED: Color32 = Color32::from_rgb(40, 50, 75);
+
+    pub const ROLE_USER: Color32 = Color32::from_rgb(130, 170, 255);
+    pub const ROLE_ASSISTANT: Color32 = Color32::from_rgb(160, 220, 160);
+}
+
 // ── Credential modal state ─────────────────────────────────────────────
 
 #[derive(Default)]
@@ -20,9 +47,7 @@ struct CredentialForm {
 // ── App state ──────────────────────────────────────────────────────────
 
 enum Screen {
-    /// Show the credential modal before anything else
     Credentials(CredentialForm),
-    /// Main chat UI
     Chat,
 }
 
@@ -49,12 +74,7 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub fn new(cc: &eframe::CreationContext<'_>, rt: tokio::runtime::Handle) -> Self {
-        // Use dark theme with readable defaults
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
-
-        let mut style = (*cc.egui_ctx.global_style()).clone();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        cc.egui_ctx.set_global_style(style);
+        configure_visuals(&cc.egui_ctx);
 
         let db = match Database::open() {
             Ok(db) => db,
@@ -294,36 +314,46 @@ impl ChatApp {
     // ── Credential modal ───────────────────────────────────────────────
 
     fn render_credentials_modal(&mut self, ui: &mut egui::Ui) {
+        // Full-screen dark background
+        let rect = ui.max_rect();
+        ui.painter().rect_filled(rect, 0.0, colors::BG_BASE);
+
         ui.vertical_centered(|ui| {
-            ui.add_space(ui.available_height() / 4.0);
+            ui.add_space(rect.height() * 0.28);
 
             egui::Frame::new()
-                .inner_margin(egui::Margin::same(24))
-                .corner_radius(12.0)
-                .fill(ui.visuals().window_fill)
-                .stroke(ui.visuals().window_stroke)
+                .inner_margin(egui::Margin::same(32))
+                .corner_radius(16.0)
+                .fill(colors::BG_MODAL_CARD)
+                .stroke(egui::Stroke::new(1.0, colors::BORDER))
                 .show(ui, |ui| {
-                    ui.set_width(380.0);
-                    ui.heading("Bedrock Chat");
-                    ui.add_space(4.0);
-                    ui.label("Paste your Bedrock API key, or skip to use your\nexisting AWS config (~/.aws, env vars, SSO).");
-                    ui.add_space(12.0);
+                    ui.set_width(400.0);
+
+                    ui.colored_label(colors::TEXT_PRIMARY, egui::RichText::new("Bedrock Chat").size(24.0).strong());
+                    ui.add_space(6.0);
+                    ui.colored_label(
+                        colors::TEXT_SECONDARY,
+                        "Paste your Bedrock API key, or skip to use\nyour existing AWS config.",
+                    );
+                    ui.add_space(16.0);
 
                     let Screen::Credentials(form) = &mut self.screen else {
                         return;
                     };
 
-                    ui.label("API Key");
+                    ui.colored_label(colors::TEXT_SECONDARY, "API Key");
+                    ui.add_space(2.0);
                     ui.add(
                         egui::TextEdit::singleline(&mut form.api_key)
                             .desired_width(f32::INFINITY)
                             .password(true)
                             .hint_text("Paste Bedrock API key..."),
                     );
-                    ui.add_space(4.0);
+                    ui.add_space(10.0);
 
                     ui.horizontal(|ui| {
-                        ui.label("Region");
+                        ui.colored_label(colors::TEXT_SECONDARY, "Region");
+                        ui.add_space(4.0);
                         egui::ComboBox::from_id_salt("cred_region")
                             .selected_text(REGIONS[form.region_idx])
                             .show_ui(ui, |ui| {
@@ -333,7 +363,7 @@ impl ChatApp {
                             });
                     });
 
-                    ui.add_space(16.0);
+                    ui.add_space(20.0);
 
                     ui.horizontal(|ui| {
                         let Screen::Credentials(form) = &self.screen else {
@@ -342,19 +372,27 @@ impl ChatApp {
                         let has_key = !form.api_key.trim().is_empty();
 
                         if ui
-                            .add_enabled(has_key, egui::Button::new("Connect"))
+                            .add_enabled(has_key, egui::Button::new(
+                                egui::RichText::new("Connect").color(if has_key { colors::BG_BASE } else { colors::TEXT_MUTED })
+                            ).fill(if has_key { colors::ACCENT } else { colors::BG_INPUT }).corner_radius(8.0).min_size(egui::vec2(90.0, 32.0)))
                             .clicked()
                         {
                             let Screen::Credentials(form) = &self.screen else {
                                 return;
                             };
-                            // Set the env var so the AWS SDK picks it up as bearer auth
                             std::env::set_var("AWS_BEARER_TOKEN_BEDROCK", form.api_key.trim());
                             self.region_idx = form.region_idx;
                             self.screen = Screen::Chat;
                         }
 
-                        if ui.button("Skip (use ~/.aws)").clicked() {
+                        ui.add_space(8.0);
+
+                        if ui
+                            .add(egui::Button::new(
+                                egui::RichText::new("Skip").color(colors::TEXT_SECONDARY)
+                            ).fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::new(1.0, colors::BORDER)).corner_radius(8.0).min_size(egui::vec2(70.0, 32.0)))
+                            .clicked()
+                        {
                             let Screen::Credentials(form) = &self.screen else {
                                 return;
                             };
@@ -366,16 +404,39 @@ impl ChatApp {
         });
     }
 
-    // ── Main chat UI ───────────────────────────────────────────────────
+    // ── Sidebar ────────────────────────────────────────────────────────
 
     fn render_sidebar(&mut self, ui: &mut egui::Ui) {
+        ui.painter().rect_filled(ui.max_rect(), 0.0, colors::BG_SIDEBAR);
+
+        ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.heading("Chats");
-            if ui.button("+ New").clicked() {
-                self.new_conversation();
-            }
+            ui.add_space(8.0);
+            ui.colored_label(colors::TEXT_PRIMARY, egui::RichText::new("Chats").size(16.0).strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new("+").size(16.0).color(colors::ACCENT))
+                            .fill(egui::Color32::TRANSPARENT)
+                            .corner_radius(6.0)
+                            .min_size(egui::vec2(28.0, 28.0)),
+                    )
+                    .clicked()
+                {
+                    self.new_conversation();
+                }
+            });
         });
-        ui.separator();
+        ui.add_space(4.0);
+
+        // Thin separator
+        let rect = ui.available_rect_before_wrap();
+        ui.painter().line_segment(
+            [rect.left_top(), egui::pos2(rect.right(), rect.top())],
+            egui::Stroke::new(1.0, colors::BORDER),
+        );
+        ui.add_space(6.0);
 
         let active_id = self.active_id.clone();
         let mut to_select: Option<String> = None;
@@ -384,18 +445,58 @@ impl ChatApp {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for conv in &self.conversations {
                 let is_active = active_id.as_deref() == Some(&conv.id);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(egui::Button::new(&conv.title).selected(is_active))
-                        .clicked()
-                        && !is_active
-                    {
-                        to_select = Some(conv.id.clone());
-                    }
-                    if ui.small_button("x").clicked() {
-                        to_delete = Some(conv.id.clone());
-                    }
-                });
+                let bg = if is_active {
+                    colors::SELECTED
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
+
+                let title: String = if conv.title.len() > 28 {
+                    format!("{}...", &conv.title[..25])
+                } else {
+                    conv.title.clone()
+                };
+
+                egui::Frame::new()
+                    .fill(bg)
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .outer_margin(egui::Margin::symmetric(4, 1))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let text_color = if is_active {
+                                colors::TEXT_PRIMARY
+                            } else {
+                                colors::TEXT_SECONDARY
+                            };
+                            let resp = ui.add(
+                                egui::Label::new(egui::RichText::new(&title).color(text_color).size(13.0))
+                                    .selectable(false)
+                                    .sense(egui::Sense::click()),
+                            );
+                            if resp.clicked() && !is_active {
+                                to_select = Some(conv.id.clone());
+                            }
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if is_active || ui.rect_contains_pointer(ui.max_rect()) {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new("x").color(colors::TEXT_MUTED).size(12.0),
+                                            )
+                                            .fill(egui::Color32::TRANSPARENT)
+                                            .min_size(egui::vec2(20.0, 20.0)),
+                                        )
+                                        .clicked()
+                                    {
+                                        to_delete = Some(conv.id.clone());
+                                    }
+                                }
+                            });
+                        });
+                    });
             }
         });
 
@@ -407,65 +508,89 @@ impl ChatApp {
         }
     }
 
+    // ── Chat pane ──────────────────────────────────────────────────────
+
     fn render_chat_pane(&mut self, ui: &mut egui::Ui) {
+        ui.painter().rect_filled(ui.max_rect(), 0.0, colors::BG_BASE);
+
         if self.active_id.is_none() {
             ui.centered_and_justified(|ui| {
-                ui.label("Select or create a conversation");
+                ui.colored_label(colors::TEXT_MUTED, "Select or create a conversation");
             });
             return;
         }
 
         self.render_top_bar(ui);
-        ui.separator();
 
-        let input_area_height = 120.0;
+        // Thin separator
+        let rect = ui.available_rect_before_wrap();
+        ui.painter().line_segment(
+            [rect.left_top(), egui::pos2(rect.right(), rect.top())],
+            egui::Stroke::new(1.0, colors::BORDER),
+        );
+        ui.add_space(2.0);
+
+        // Messages take remaining space minus input
+        let input_area_height = 100.0;
         let avail = ui.available_height() - input_area_height;
         ui.allocate_ui(egui::vec2(ui.available_width(), avail.max(100.0)), |ui| {
             self.render_messages(ui);
         });
 
-        ui.separator();
-
+        // Error display
         if let Some(err) = self.last_error.clone() {
-            ui.colored_label(egui::Color32::from_rgb(255, 100, 100), &err);
-            if ui.small_button("dismiss").clicked() {
-                self.last_error = None;
-            }
+            ui.horizontal(|ui| {
+                ui.add_space(16.0);
+                ui.colored_label(colors::ERROR, &err);
+                if ui.small_button("dismiss").clicked() {
+                    self.last_error = None;
+                }
+            });
         }
 
         self.render_input(ui);
     }
 
     fn render_top_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label("Model:");
-            let current_model_name = MODELS[self.model_idx].0;
-            egui::ComboBox::from_id_salt("model_picker")
-                .selected_text(current_model_name)
-                .show_ui(ui, |ui| {
-                    for (i, (name, _)) in MODELS.iter().enumerate() {
-                        ui.selectable_value(&mut self.model_idx, i, *name);
+        egui::Frame::new()
+            .fill(colors::BG_TOPBAR)
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(colors::TEXT_SECONDARY, "Model");
+                    ui.add_space(2.0);
+                    let current_model_name = MODELS[self.model_idx].0;
+                    egui::ComboBox::from_id_salt("model_picker")
+                        .selected_text(current_model_name)
+                        .show_ui(ui, |ui| {
+                            for (i, (name, _)) in MODELS.iter().enumerate() {
+                                ui.selectable_value(&mut self.model_idx, i, *name);
+                            }
+                        });
+
+                    ui.add_space(12.0);
+                    ui.colored_label(colors::TEXT_SECONDARY, "Region");
+                    ui.add_space(2.0);
+                    let current_region = REGIONS[self.region_idx];
+                    egui::ComboBox::from_id_salt("region_picker")
+                        .selected_text(current_region)
+                        .show_ui(ui, |ui| {
+                            for (i, region) in REGIONS.iter().enumerate() {
+                                ui.selectable_value(&mut self.region_idx, i, *region);
+                            }
+                        });
+
+                    ui.add_space(12.0);
+                    if ui
+                        .selectable_label(self.show_system_prompt, "System Prompt")
+                        .clicked()
+                    {
+                        self.show_system_prompt = !self.show_system_prompt;
                     }
                 });
+            });
 
-            ui.label("Region:");
-            let current_region = REGIONS[self.region_idx];
-            egui::ComboBox::from_id_salt("region_picker")
-                .selected_text(current_region)
-                .show_ui(ui, |ui| {
-                    for (i, region) in REGIONS.iter().enumerate() {
-                        ui.selectable_value(&mut self.region_idx, i, *region);
-                    }
-                });
-
-            if ui
-                .selectable_label(self.show_system_prompt, "System Prompt")
-                .clicked()
-            {
-                self.show_system_prompt = !self.show_system_prompt;
-            }
-        });
-
+        // Sync model/region
         let model_id = MODELS[self.model_idx].1.to_string();
         let region = REGIONS[self.region_idx].to_string();
         if let Some(conv) = self.active_conversation_mut() {
@@ -479,63 +604,71 @@ impl ChatApp {
         }
 
         if self.show_system_prompt {
-            let mut sys = self
-                .active_conversation()
-                .map(|c| c.system_prompt.clone())
-                .unwrap_or_default();
-            let changed = ui
-                .add(
-                    egui::TextEdit::multiline(&mut sys)
-                        .hint_text("Enter system prompt...")
-                        .desired_rows(3)
-                        .desired_width(f32::INFINITY),
-                )
-                .changed();
-            if changed {
-                if let Some(conv) = self.active_conversation_mut() {
-                    conv.system_prompt = sys;
-                }
-                if let Some(conv) = self.active_conversation() {
-                    let _ = self.db.upsert_conversation(conv);
-                }
-            }
+            egui::Frame::new()
+                .fill(colors::BG_TOPBAR)
+                .inner_margin(egui::Margin::symmetric(12, 4))
+                .show(ui, |ui| {
+                    let mut sys = self
+                        .active_conversation()
+                        .map(|c| c.system_prompt.clone())
+                        .unwrap_or_default();
+                    let changed = ui
+                        .add(
+                            egui::TextEdit::multiline(&mut sys)
+                                .hint_text("Enter system prompt...")
+                                .desired_rows(2)
+                                .desired_width(f32::INFINITY),
+                        )
+                        .changed();
+                    if changed {
+                        if let Some(conv) = self.active_conversation_mut() {
+                            conv.system_prompt = sys;
+                        }
+                        if let Some(conv) = self.active_conversation() {
+                            let _ = self.db.upsert_conversation(conv);
+                        }
+                    }
+                });
         }
     }
 
     fn render_messages(&mut self, ui: &mut egui::Ui) {
-        let scroll = egui::ScrollArea::vertical()
+        egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .stick_to_bottom(true);
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
 
-        scroll.show(ui, |ui| {
-            ui.set_width(ui.available_width());
+                // Horizontal padding for message content
+                let side_pad = (ui.available_width() * 0.04).clamp(12.0, 40.0);
 
-            let msg_count = self.messages.len();
-            for i in 0..msg_count {
-                let is_last = i == msg_count - 1;
-                let is_streaming_msg = is_last && self.is_streaming;
-                self.render_single_message(ui, i, is_streaming_msg);
-            }
+                ui.add_space(8.0);
+                let msg_count = self.messages.len();
+                for i in 0..msg_count {
+                    let is_last = i == msg_count - 1;
+                    let is_streaming_msg = is_last && self.is_streaming;
 
-            if self.scroll_to_bottom {
-                ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
-                self.scroll_to_bottom = false;
-            }
-        });
+                    ui.horizontal(|ui| {
+                        ui.add_space(side_pad);
+                        ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                            ui.set_width(ui.available_width() - side_pad);
+                            self.render_single_message(ui, i, is_streaming_msg);
+                        });
+                    });
+                }
+
+                if self.scroll_to_bottom {
+                    ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                    self.scroll_to_bottom = false;
+                }
+            });
     }
 
     fn render_single_message(&mut self, ui: &mut egui::Ui, idx: usize, is_streaming: bool) {
         let role = self.messages[idx].role;
-        let role_label = match role {
-            Role::User => "You",
-            Role::Assistant => "Assistant",
-        };
-
-        // Theme-aware colors: slight tint over the panel background
-        let base = ui.visuals().window_fill;
-        let bg_color = match role {
-            Role::User => tint_color(base, egui::Color32::from_rgb(60, 80, 140), 0.12),
-            Role::Assistant => base,
+        let (role_label, role_color, bg_color) = match role {
+            Role::User => ("You", colors::ROLE_USER, colors::BG_USER_MSG),
+            Role::Assistant => ("Assistant", colors::ROLE_ASSISTANT, colors::BG_ASSISTANT_MSG),
         };
 
         let content_empty = self.messages[idx].content.is_empty();
@@ -547,17 +680,28 @@ impl ChatApp {
 
         egui::Frame::new()
             .fill(bg_color)
-            .corner_radius(8.0)
-            .inner_margin(egui::Margin::same(12))
+            .corner_radius(10.0)
+            .inner_margin(egui::Margin::symmetric(16, 12))
             .outer_margin(egui::Margin::symmetric(0, 3))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
 
+                // Header row: role label + copy/spinner
                 ui.horizontal(|ui| {
-                    ui.strong(role_label);
+                    ui.colored_label(role_color, egui::RichText::new(role_label).size(12.5).strong());
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if let Some(ref text) = content_for_copy {
-                            if ui.small_button("Copy").clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Copy").size(11.0).color(colors::TEXT_MUTED),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .corner_radius(4.0),
+                                )
+                                .clicked()
+                            {
                                 self.copy_to_clipboard(text);
                             }
                         }
@@ -567,10 +711,10 @@ impl ChatApp {
                     });
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(6.0);
 
                 if content_empty && is_streaming {
-                    ui.label("...");
+                    ui.colored_label(colors::TEXT_MUTED, "...");
                 } else if !content_empty {
                     let content = self.messages[idx].content.clone();
                     if is_streaming {
@@ -597,54 +741,102 @@ impl ChatApp {
         let send_shortcut_ctrl =
             egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Enter);
 
-        ui.horizontal_top(|ui| {
-            let desired_rows = {
-                let line_count = self.input.chars().filter(|c| *c == '\n').count() + 1;
-                line_count.clamp(1, 8)
-            };
+        egui::Frame::new()
+            .fill(colors::BG_BASE)
+            .inner_margin(egui::Margin::symmetric(16, 10))
+            .show(ui, |ui| {
+                egui::Frame::new()
+                    .fill(colors::BG_INPUT)
+                    .corner_radius(12.0)
+                    .stroke(egui::Stroke::new(1.0, colors::BORDER))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.horizontal_top(|ui| {
+                            let desired_rows = {
+                                let line_count =
+                                    self.input.chars().filter(|c| *c == '\n').count() + 1;
+                                line_count.clamp(1, 8)
+                            };
 
-            let response = ui.add_sized(
-                egui::vec2(ui.available_width() - 70.0, 0.0),
-                egui::TextEdit::multiline(&mut self.input)
-                    .hint_text("Type a message... (Ctrl+Enter to send)")
-                    .desired_rows(desired_rows)
-                    .lock_focus(true),
-            );
+                            let response = ui.add_sized(
+                                egui::vec2(ui.available_width() - 60.0, 0.0),
+                                egui::TextEdit::multiline(&mut self.input)
+                                    .hint_text(egui::RichText::new("Message...").color(colors::TEXT_MUTED))
+                                    .desired_rows(desired_rows)
+                                    .lock_focus(true)
+                                    .text_color(colors::TEXT_PRIMARY),
+                            );
 
-            let ctrl_enter_pressed = ui.input_mut(|i| {
-                i.consume_shortcut(&send_shortcut) || i.consume_shortcut(&send_shortcut_ctrl)
+                            let ctrl_enter_pressed = ui.input_mut(|i| {
+                                i.consume_shortcut(&send_shortcut)
+                                    || i.consume_shortcut(&send_shortcut_ctrl)
+                            });
+
+                            let can_send = !self.is_streaming && !self.input.trim().is_empty();
+
+                            let btn_color = if can_send { colors::ACCENT } else { colors::ACCENT_DIM };
+                            let send_clicked = ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Send")
+                                            .color(if can_send { colors::BG_BASE } else { colors::TEXT_MUTED })
+                                            .size(13.0),
+                                    )
+                                    .fill(btn_color)
+                                    .corner_radius(8.0)
+                                    .min_size(egui::vec2(52.0, 30.0)),
+                                )
+                                .clicked();
+
+                            if (ctrl_enter_pressed || send_clicked) && can_send {
+                                let ctx = ui.ctx().clone();
+                                self.send_message(&ctx);
+                            }
+
+                            if !self.is_streaming {
+                                response.request_focus();
+                            }
+                        });
+                    });
             });
-
-            let can_send = !self.is_streaming && !self.input.trim().is_empty();
-            let send_clicked = ui
-                .add_enabled(can_send, egui::Button::new("Send"))
-                .clicked();
-
-            if (ctrl_enter_pressed || send_clicked) && can_send {
-                let ctx = ui.ctx().clone();
-                self.send_message(&ctx);
-            }
-
-            if !self.is_streaming {
-                response.request_focus();
-            }
-        });
     }
 }
 
-// ── Color helper ────────────────────────────────────────────────────────
+// ── Theme configuration ─────────────────────────────────────────────────
 
-/// Blend `base` toward `tint` by `amount` (0.0 = pure base, 1.0 = pure tint).
-fn tint_color(base: egui::Color32, tint: egui::Color32, amount: f32) -> egui::Color32 {
-    let lerp = |a: u8, b: u8| -> u8 {
-        let v = a as f32 * (1.0 - amount) + b as f32 * amount;
-        v.round() as u8
-    };
-    egui::Color32::from_rgb(
-        lerp(base.r(), tint.r()),
-        lerp(base.g(), tint.g()),
-        lerp(base.b(), tint.b()),
-    )
+fn configure_visuals(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
+
+    visuals.panel_fill = colors::BG_BASE;
+    visuals.window_fill = colors::BG_BASE;
+    visuals.extreme_bg_color = colors::BG_INPUT;
+    visuals.faint_bg_color = colors::BG_SIDEBAR;
+
+    visuals.widgets.noninteractive.bg_fill = colors::BG_INPUT;
+    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, colors::TEXT_PRIMARY);
+
+    visuals.widgets.inactive.bg_fill = colors::BG_INPUT;
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, colors::TEXT_SECONDARY);
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+
+    visuals.widgets.hovered.bg_fill = colors::HOVER;
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, colors::TEXT_PRIMARY);
+
+    visuals.widgets.active.bg_fill = colors::SELECTED;
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, colors::TEXT_PRIMARY);
+
+    visuals.selection.bg_fill = colors::ACCENT_DIM;
+    visuals.selection.stroke = egui::Stroke::new(1.0, colors::TEXT_PRIMARY);
+
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, colors::BORDER);
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, colors::BORDER);
+
+    ctx.set_visuals(visuals);
+
+    let mut style = (*ctx.global_style()).clone();
+    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    ctx.set_global_style(style);
 }
 
 // ── eframe::App ─────────────────────────────────────────────────────────
@@ -659,8 +851,8 @@ impl eframe::App for ChatApp {
                 self.poll_stream();
 
                 egui::Panel::left("sidebar")
-                    .default_size(220.0)
-                    .min_size(150.0)
+                    .default_size(240.0)
+                    .min_size(180.0)
                     .show_inside(ui, |ui| {
                         self.render_sidebar(ui);
                     });

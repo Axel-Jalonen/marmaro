@@ -258,6 +258,17 @@ impl ChatApp {
     fn conv_has_messages(&self) -> bool { !self.messages.is_empty() }
 
     fn select_conversation(&mut self, id: &str) {
+        // Clean up empty ephemeral chat when leaving
+        if self.ephemeral {
+            if let Some(old_id) = &self.active_id {
+                if self.messages.is_empty() && old_id != id {
+                    // Remove the empty ephemeral chat from the list
+                    let old_id_clone = old_id.clone();
+                    self.conversations.retain(|c| c.id != old_id_clone);
+                }
+            }
+        }
+        
         self.active_id = Some(id.to_string());
         self.conv_usage = TokenUsage::default();
         self.last_usage = None;
@@ -832,27 +843,25 @@ impl ChatApp {
                 ));
                 let bg = if is_active { pal.selected } else if is_hovered { pal.hover } else { egui::Color32::TRANSPARENT };
                 
-                let mut delete_clicked = false;
                 let frame_resp = egui::Frame::new().fill(bg).corner_radius(8.0).inner_margin(egui::Margin::symmetric(10, 6)).outer_margin(egui::Margin::symmetric(4, 1)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         let tc = if is_active { pal.text_primary } else { pal.text_secondary };
                         ui.add(egui::Label::new(egui::RichText::new(&title).color(tc).size(13.0)).selectable(false));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            // Always allocate space for button to prevent layout shift
+                            // Always show button but only visible when hovered/active
                             let btn_color = if is_active || is_hovered { pal.text_muted } else { egui::Color32::TRANSPARENT };
-                            if ui.add(egui::Button::new(egui::RichText::new("x").color(btn_color).size(12.0))
-                                .fill(egui::Color32::TRANSPARENT).min_size(egui::vec2(20.0, 20.0))).clicked() {
-                                delete_clicked = true;
+                            let del_btn = ui.add(egui::Button::new(egui::RichText::new("x").color(btn_color).size(12.0))
+                                .fill(egui::Color32::TRANSPARENT).min_size(egui::vec2(20.0, 20.0)));
+                            if del_btn.clicked() {
+                                to_delete = Some(conv_id.clone());
                             }
                         });
                     });
                 });
                 
-                if delete_clicked {
-                    to_delete = Some(conv_id.clone());
-                } else {
-                    // Make entire row clickable (but not if delete was clicked)
+                // Only handle row click if delete wasn't clicked
+                if to_delete.is_none() {
                     let row_resp = ui.interact(frame_resp.response.rect, egui::Id::new(("conv_row", &conv_id)), egui::Sense::click());
                     if row_resp.clicked() && !is_active {
                         to_select = Some(conv_id);
@@ -861,7 +870,7 @@ impl ChatApp {
             }
         });
         if let Some(id) = to_delete { self.delete_conversation(&id); }
-        if let Some(id) = to_select { self.select_conversation(&id); }
+        else if let Some(id) = to_select { self.select_conversation(&id); }
     }
 
     // ── Chat pane ──────────────────────────────────────────────────────
@@ -969,13 +978,23 @@ impl ChatApp {
                 }
 
                 ui.add_space(8.0);
-                if ui.selectable_label(self.show_system_prompt, "System Prompt").clicked() {
-                    self.show_system_prompt = !self.show_system_prompt;
-                    if self.show_system_prompt {
-                        // Load current system prompt into draft
-                        self.system_prompt_draft = self.active_conversation().map(|c| c.system_prompt.clone()).unwrap_or_default();
+                // System prompt button with preview
+                let sys_prompt = self.active_conversation().map(|c| c.system_prompt.clone()).unwrap_or_default();
+                let has_sys_prompt = !sys_prompt.is_empty();
+                ui.vertical(|ui| {
+                    if ui.selectable_label(self.show_system_prompt, "System Prompt").clicked() {
+                        self.show_system_prompt = !self.show_system_prompt;
+                        if self.show_system_prompt {
+                            self.system_prompt_draft = sys_prompt.clone();
+                        }
                     }
-                }
+                    // Show preview of system prompt if set
+                    if has_sys_prompt && !self.show_system_prompt {
+                        let preview: String = sys_prompt.chars().take(30).collect();
+                        let preview = if sys_prompt.len() > 30 { format!("{}...", preview) } else { preview };
+                        ui.colored_label(pal.text_muted, egui::RichText::new(preview).size(10.0));
+                    }
+                });
 
                 // Compact button
                 if has_msgs && !self.is_streaming && !self.is_compacting {
@@ -1011,11 +1030,12 @@ impl ChatApp {
                     let current = self.active_conversation().map(|c| c.system_prompt.clone()).unwrap_or_default();
                     let changed = self.system_prompt_draft != current;
                     if ui.add_enabled(changed, egui::Button::new(
-                        egui::RichText::new("Set").color(if changed { pal.bg_base } else { pal.text_muted })
+                        egui::RichText::new("Set").color(if changed { egui::Color32::WHITE } else { pal.text_muted })
                     ).fill(if changed { pal.accent } else { pal.bg_input }).corner_radius(6.0).min_size(egui::vec2(50.0, 28.0))).clicked() {
                         let draft = self.system_prompt_draft.clone();
                         if let Some(conv) = self.active_conversation_mut() { conv.system_prompt = draft; }
                         if !self.ephemeral { if let Some(conv) = self.active_conversation() { let _ = self.db.upsert_conversation(conv); } }
+                        self.show_system_prompt = false; // Close after setting
                     }
                 });
             });

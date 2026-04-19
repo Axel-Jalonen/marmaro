@@ -172,6 +172,8 @@ pub struct ChatApp {
     last_frame_time: Option<f64>,
 
     model_filter: String,
+    show_model_picker: bool,
+    model_picker_hover_idx: Option<usize>,
     ephemeral: bool,
 
     show_search: bool,
@@ -179,6 +181,7 @@ pub struct ChatApp {
     search_results: Vec<(String, String, String)>,
     /// Whether search modal just opened (for one-shot focus)
     search_just_opened: bool,
+    search_selected_idx: usize,
 
     is_compacting: bool,
     compact_rx: Option<mpsc::UnboundedReceiver<StreamToken>>,
@@ -217,9 +220,10 @@ impl ChatApp {
             scroll_to_bottom: false, user_scrolled_up: false, model_idx: 0, region_idx: saved_region,
             show_system_prompt: false, system_prompt_draft: String::new(), clipboard, conv_usage: TokenUsage::default(),
             last_usage: None, current_theme: theme, pal, burst: BurstFx::new(),
-            last_frame_time: None, model_filter: String::new(), ephemeral: false,
+            last_frame_time: None, model_filter: String::new(), show_model_picker: false,
+            model_picker_hover_idx: None, ephemeral: false,
             show_search: false, search_query: String::new(), search_results: Vec::new(),
-            search_just_opened: false,
+            search_just_opened: false, search_selected_idx: 0,
             is_compacting: false, compact_rx: None,
             last_escape_time: 0.0,
         }
@@ -458,32 +462,163 @@ impl ChatApp {
                                 self.search_results = if self.search_query.len() >= 2 {
                                     self.db.search(&self.search_query).unwrap_or_default()
                                 } else { Vec::new() };
+                                self.search_selected_idx = 0;
                             }
                             // Only grab focus once when the modal first opens
                             if self.search_just_opened {
                                 resp.request_focus();
                                 self.search_just_opened = false;
                             }
+                            
+                            // Arrow key navigation
+                            let result_count = self.search_results.len();
+                            if result_count > 0 {
+                                if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                                    self.search_selected_idx = (self.search_selected_idx + 1).min(result_count - 1);
+                                }
+                                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                                    self.search_selected_idx = self.search_selected_idx.saturating_sub(1);
+                                }
+                            }
+                            
                             ui.add_space(8.0);
                             let mut to_open: Option<String> = None;
+                            
+                            // Enter to select
+                            if ui.input(|i| i.key_pressed(egui::Key::Enter)) && result_count > 0 {
+                                to_open = Some(self.search_results[self.search_selected_idx].0.clone());
+                            }
+                            
                             egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                                 if self.search_results.is_empty() && self.search_query.len() >= 2 {
                                     ui.colored_label(pal.text_muted, "No results");
                                 }
-                                for (conv_id, title, snippet) in &self.search_results {
-                                    let r = ui.add(egui::Label::new(
-                                        egui::RichText::new(title).color(pal.text_primary).size(13.0).strong()
-                                    ).selectable(false).sense(egui::Sense::click()));
-                                    let snip = if snippet.chars().count() > 80 { snippet.chars().take(77).collect::<String>() + "..." } else { snippet.clone() };
-                                    ui.colored_label(pal.text_muted, egui::RichText::new(snip).size(11.5));
-                                    ui.add_space(4.0);
-                                    if r.clicked() { to_open = Some(conv_id.clone()); }
+                                for (idx, (conv_id, title, snippet)) in self.search_results.iter().enumerate() {
+                                    let is_selected = idx == self.search_selected_idx;
+                                    let bg = if is_selected { pal.selected } else { egui::Color32::TRANSPARENT };
+                                    egui::Frame::new().fill(bg).corner_radius(6.0).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                                        let r = ui.add(egui::Label::new(
+                                            egui::RichText::new(title).color(pal.text_primary).size(13.0).strong()
+                                        ).selectable(false).sense(egui::Sense::click()));
+                                        let snip = if snippet.chars().count() > 80 { snippet.chars().take(77).collect::<String>() + "..." } else { snippet.clone() };
+                                        ui.colored_label(pal.text_muted, egui::RichText::new(snip).size(11.5));
+                                        if r.clicked() { to_open = Some(conv_id.clone()); }
+                                        if r.hovered() { self.search_selected_idx = idx; }
+                                    });
+                                    ui.add_space(2.0);
                                 }
                             });
                             if let Some(id) = to_open { self.select_conversation(&id); self.show_search = false; }
                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) { self.show_search = false; }
                         });
                     });
+            });
+    }
+
+    // ── Model picker modal ─────────────────────────────────────────────
+
+    fn render_model_picker(&mut self, ui: &mut egui::Ui) {
+        let pal = self.pal.clone();
+        
+        // Build filtered model list with indices
+        let filter = self.model_filter.to_lowercase();
+        let filtered: Vec<usize> = MODELS.iter().enumerate()
+            .filter(|(_, m)| filter.is_empty() || m.name.to_lowercase().contains(&filter) || m.provider.to_lowercase().contains(&filter))
+            .map(|(i, _)| i)
+            .collect();
+        
+        // Handle keyboard navigation
+        if !filtered.is_empty() {
+            let current_pos = self.model_picker_hover_idx
+                .and_then(|idx| filtered.iter().position(|&i| i == idx))
+                .unwrap_or(0);
+            
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                let new_pos = (current_pos + 1).min(filtered.len() - 1);
+                self.model_picker_hover_idx = Some(filtered[new_pos]);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                let new_pos = current_pos.saturating_sub(1);
+                self.model_picker_hover_idx = Some(filtered[new_pos]);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if let Some(idx) = self.model_picker_hover_idx {
+                    self.model_idx = idx;
+                    self.show_model_picker = false;
+                    self.model_filter.clear();
+                }
+            }
+        }
+        
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.show_model_picker = false;
+            self.model_filter.clear();
+        }
+        
+        // Click outside to close
+        egui::Area::new(egui::Id::new("model_picker_backdrop"))
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .order(egui::Order::Background)
+            .show(ui.ctx(), |ui| {
+                let screen = ui.ctx().content_rect();
+                let resp = ui.allocate_rect(screen, egui::Sense::click());
+                if resp.clicked() {
+                    self.show_model_picker = false;
+                    self.model_filter.clear();
+                }
+            });
+        
+        egui::Area::new(egui::Id::new("model_picker_popup"))
+            .fixed_pos(egui::pos2(100.0, 60.0))
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::new().fill(pal.bg_modal).corner_radius(12.0)
+                    .stroke(egui::Stroke::new(1.0, pal.border))
+                    .inner_margin(egui::Margin::same(16)).show(ui, |ui| {
+                    ui.set_width(300.0);
+                    
+                    let filter_resp = ui.add(egui::TextEdit::singleline(&mut self.model_filter)
+                        .hint_text("Filter models...").desired_width(f32::INFINITY));
+                    filter_resp.request_focus();
+                    
+                    ui.add_space(8.0);
+                    
+                    egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                        let mut last_provider = "";
+                        for &model_idx in &filtered {
+                            let m = &MODELS[model_idx];
+                            if m.provider != last_provider {
+                                if !last_provider.is_empty() { ui.add_space(4.0); }
+                                ui.colored_label(pal.text_muted, egui::RichText::new(m.provider).size(11.0).strong());
+                                last_provider = m.provider;
+                            }
+                            
+                            let is_selected = self.model_picker_hover_idx == Some(model_idx);
+                            let is_current = self.model_idx == model_idx;
+                            let bg = if is_selected { pal.selected } else if is_current { pal.hover } else { egui::Color32::TRANSPARENT };
+                            
+                            egui::Frame::new().fill(bg).corner_radius(4.0).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
+                                let text_color = if is_current { pal.accent } else { pal.text_primary };
+                                let resp = ui.add(egui::Label::new(
+                                    egui::RichText::new(m.name).color(text_color).size(13.0)
+                                ).selectable(false).sense(egui::Sense::click()));
+                                
+                                if resp.clicked() {
+                                    self.model_idx = model_idx;
+                                    self.show_model_picker = false;
+                                    self.model_filter.clear();
+                                }
+                                if resp.hovered() {
+                                    self.model_picker_hover_idx = Some(model_idx);
+                                }
+                            });
+                        }
+                        
+                        if filtered.is_empty() {
+                            ui.colored_label(pal.text_muted, "No matching models");
+                        }
+                    });
+                });
             });
     }
 
@@ -705,25 +840,19 @@ impl ChatApp {
                 ui.colored_label(pal.text_secondary, "Model");
                 ui.add_space(2.0);
                 let current_name = MODELS[self.model_idx].name;
-                egui::ComboBox::from_id_salt("model_picker").selected_text(current_name).width(220.0).show_ui(ui, |ui| {
-                    let filter_resp = ui.add(egui::TextEdit::singleline(&mut self.model_filter).hint_text("Filter models...").desired_width(200.0));
-                    // Keep focus on filter when typing
-                    if filter_resp.changed() { filter_resp.request_focus(); }
-                    ui.add_space(4.0);
-                    let filter = self.model_filter.to_lowercase();
-                    let mut last_provider = "";
-                    for (i, m) in MODELS.iter().enumerate() {
-                        if !filter.is_empty() && !m.name.to_lowercase().contains(&filter) && !m.provider.to_lowercase().contains(&filter) { continue; }
-                        if m.provider != last_provider {
-                            if !last_provider.is_empty() { ui.separator(); }
-                            ui.colored_label(pal.text_muted, egui::RichText::new(m.provider).size(11.0).strong());
-                            last_provider = m.provider;
-                        }
-                        if ui.selectable_value(&mut self.model_idx, i, m.name).clicked() {
-                            self.model_filter.clear();
-                        }
+                
+                // Custom model picker button
+                let btn_resp = ui.add(egui::Button::new(
+                    egui::RichText::new(format!("{} \u{25BC}", current_name)).color(pal.text_primary)
+                ).fill(pal.bg_input).stroke(egui::Stroke::new(1.0, pal.border)).corner_radius(6.0).min_size(egui::vec2(220.0, 24.0)));
+                
+                if btn_resp.clicked() {
+                    self.show_model_picker = !self.show_model_picker;
+                    if self.show_model_picker {
+                        self.model_filter.clear();
+                        self.model_picker_hover_idx = Some(self.model_idx);
                     }
-                });
+                }
 
                 ui.add_space(8.0);
                 ui.colored_label(pal.text_secondary, "Region");
@@ -937,7 +1066,7 @@ impl eframe::App for ChatApp {
         self.poll_compact();
 
         // Double-tap Escape to interrupt streaming
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && !self.show_search {
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && !self.show_search && !self.show_model_picker {
             let now = ui.input(|i| i.time);
             if (self.is_streaming || self.is_compacting) && (now - self.last_escape_time) < 0.4 {
                 // Second tap within 400ms -- cancel
@@ -986,5 +1115,6 @@ impl eframe::App for ChatApp {
         }
 
         if self.show_search { self.render_search_modal(ui); }
+        if self.show_model_picker { self.render_model_picker(ui); }
     }
 }

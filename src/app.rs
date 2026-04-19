@@ -10,16 +10,6 @@ use crate::bedrock::{self, StreamToken};
 use crate::db::Database;
 use crate::message::{ChatMessage, Conversation, Role, TokenUsage, MODELS, REGIONS};
 
-// ── Menu item IDs (set up in main.rs, polled here) ─────────────────────
-
-pub struct MenuIds {
-    pub change_key: muda::MenuId,
-    pub new_chat: muda::MenuId,
-    pub search: muda::MenuId,
-    pub compact: muda::MenuId,
-    pub ephemeral: muda::MenuId,
-}
-
 // ── Theme-aware color palette ──────────────────────────────────────────
 
 #[derive(Clone)]
@@ -33,6 +23,8 @@ struct Palette {
     bg_modal: egui::Color32,
     accent: egui::Color32,
     accent_dim: egui::Color32,
+    accent2: egui::Color32,  // secondary accent for particles
+    accent3: egui::Color32,  // tertiary accent for particles
     text_primary: egui::Color32,
     text_secondary: egui::Color32,
     text_muted: egui::Color32,
@@ -49,7 +41,9 @@ impl Palette {
         Self {
             bg_base: c(22, 22, 26), bg_sidebar: c(28, 28, 33), bg_user_msg: c(32, 33, 42),
             bg_assist_msg: c(26, 26, 30), bg_input: c(34, 35, 40), bg_topbar: c(28, 28, 33),
-            bg_modal: c(32, 33, 38), accent: c(100, 140, 255), accent_dim: c(70, 100, 190),
+            bg_modal: c(32, 33, 38),
+            accent: c(100, 140, 255), accent_dim: c(70, 100, 190),
+            accent2: c(160, 100, 255), accent3: c(80, 200, 200),
             text_primary: c(220, 222, 228), text_secondary: c(140, 144, 158),
             text_muted: c(90, 94, 108), error: c(255, 110, 110), border: c(50, 52, 60),
             hover: c(42, 44, 54), selected: c(40, 50, 75),
@@ -60,7 +54,9 @@ impl Palette {
         Self {
             bg_base: c(245, 245, 248), bg_sidebar: c(235, 236, 240), bg_user_msg: c(225, 230, 245),
             bg_assist_msg: c(240, 240, 244), bg_input: c(255, 255, 255), bg_topbar: c(235, 236, 240),
-            bg_modal: c(255, 255, 255), accent: c(50, 100, 220), accent_dim: c(130, 160, 220),
+            bg_modal: c(255, 255, 255),
+            accent: c(50, 100, 220), accent_dim: c(130, 160, 220),
+            accent2: c(120, 60, 200), accent3: c(40, 160, 160),
             text_primary: c(30, 30, 36), text_secondary: c(90, 94, 108),
             text_muted: c(150, 154, 168), error: c(200, 50, 50), border: c(210, 212, 220),
             hover: c(220, 222, 230), selected: c(210, 220, 245),
@@ -74,35 +70,139 @@ impl Palette {
 fn c(r: u8, g: u8, b: u8) -> egui::Color32 { egui::Color32::from_rgb(r, g, b) }
 
 // ── Particle system ────────────────────────────────────────────────────
+// Particles drift, breathe, and draw faint connections to nearby neighbors.
+// Mouse proximity causes them to gently scatter.
 
-struct Particle { x: f32, y: f32, vx: f32, vy: f32, radius: f32, alpha: f32 }
-struct Particles { list: Vec<Particle>, time: f64 }
+struct Particle {
+    x: f32, y: f32,        // normalized 0..1
+    vx: f32, vy: f32,
+    base_vx: f32, base_vy: f32,  // original velocity (restored after mouse scatter)
+    radius: f32,
+    base_alpha: f32,
+    color_idx: u8,          // 0=accent, 1=accent2, 2=accent3
+    phase: f32,             // unique phase offset for breathing
+    depth: f32,             // 0..1 parallax layer (0=far, 1=near)
+}
+
+struct Particles {
+    list: Vec<Particle>,
+    time: f64,
+}
 
 impl Particles {
     fn new(count: usize) -> Self {
         let mut rng = rand::thread_rng();
         Self {
-            list: (0..count).map(|_| Particle {
-                x: rng.gen_range(0.0..1.0), y: rng.gen_range(0.0..1.0),
-                vx: rng.gen_range(-0.003..0.003), vy: rng.gen_range(-0.002..0.002),
-                radius: rng.gen_range(1.5..4.0), alpha: rng.gen_range(0.15..0.45),
+            list: (0..count).map(|_| {
+                let depth = rng.gen_range(0.2_f32..1.0);
+                let speed = 0.002 + depth * 0.004;
+                let vx = rng.gen_range(-speed..speed);
+                let vy = rng.gen_range(-speed..speed);
+                Particle {
+                    x: rng.gen_range(0.0..1.0), y: rng.gen_range(0.0..1.0),
+                    vx, vy, base_vx: vx, base_vy: vy,
+                    radius: 1.0 + depth * 3.0,
+                    base_alpha: 0.1 + depth * 0.35,
+                    color_idx: rng.gen_range(0..3),
+                    phase: rng.gen_range(0.0..std::f32::consts::TAU),
+                    depth,
+                }
             }).collect(),
             time: 0.0,
         }
     }
 
-    fn draw(&mut self, painter: &egui::Painter, rect: egui::Rect, accent: egui::Color32, dt: f32) {
+    fn draw(&mut self, painter: &egui::Painter, rect: egui::Rect, pal: &Palette, dt: f32, mouse: Option<egui::Pos2>) {
         self.time += dt as f64;
+        let t = self.time as f32;
+
+        // Update positions + mouse interaction
         for p in &mut self.list {
-            p.x += p.vx * dt; p.y += p.vy * dt;
-            if p.x < 0.0 { p.x += 1.0; } if p.x > 1.0 { p.x -= 1.0; }
-            if p.y < 0.0 { p.y += 1.0; } if p.y > 1.0 { p.y -= 1.0; }
+            // Mouse repulsion
+            if let Some(mpos) = mouse {
+                let mx = (mpos.x - rect.left()) / rect.width();
+                let my = (mpos.y - rect.top()) / rect.height();
+                let dx = p.x - mx;
+                let dy = p.y - my;
+                let dist_sq = dx * dx + dy * dy;
+                let repel_radius = 0.04; // normalized
+                if dist_sq < repel_radius && dist_sq > 0.0001 {
+                    let dist = dist_sq.sqrt();
+                    let force = ((repel_radius - dist) / repel_radius) * 0.02 * p.depth;
+                    p.vx += (dx / dist) * force;
+                    p.vy += (dy / dist) * force;
+                }
+            }
+
+            // Dampen back toward base velocity
+            p.vx += (p.base_vx - p.vx) * 0.02;
+            p.vy += (p.base_vy - p.vy) * 0.02;
+
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            if p.x < -0.02 { p.x += 1.04; } if p.x > 1.02 { p.x -= 1.04; }
+            if p.y < -0.02 { p.y += 1.04; } if p.y > 1.02 { p.y -= 1.04; }
+        }
+
+        // Draw connection lines between nearby particles (only near-layer ones)
+        let connect_dist = 0.12_f32;
+        let connect_dist_sq = connect_dist * connect_dist;
+        let n = self.list.len();
+        for i in 0..n {
+            if self.list[i].depth < 0.5 { continue; } // skip far particles
+            for j in (i + 1)..n {
+                if self.list[j].depth < 0.5 { continue; }
+                let dx = self.list[i].x - self.list[j].x;
+                let dy = self.list[i].y - self.list[j].y;
+                let d2 = dx * dx + dy * dy;
+                if d2 < connect_dist_sq {
+                    let closeness = 1.0 - (d2 / connect_dist_sq);
+                    let alpha = (closeness * 25.0 * self.list[i].depth * self.list[j].depth) as u8;
+                    if alpha > 0 {
+                        let col = Self::particle_color(pal, self.list[i].color_idx);
+                        let line_color = egui::Color32::from_rgba_premultiplied(col.r(), col.g(), col.b(), alpha);
+                        let p1 = egui::pos2(
+                            rect.left() + self.list[i].x * rect.width(),
+                            rect.top() + self.list[i].y * rect.height(),
+                        );
+                        let p2 = egui::pos2(
+                            rect.left() + self.list[j].x * rect.width(),
+                            rect.top() + self.list[j].y * rect.height(),
+                        );
+                        painter.line_segment([p1, p2], egui::Stroke::new(0.5, line_color));
+                    }
+                }
+            }
+        }
+
+        // Draw particles
+        for p in &self.list {
             let sx = rect.left() + p.x * rect.width();
             let sy = rect.top() + p.y * rect.height();
-            let wave = ((self.time * 0.5 + p.x as f64 * 3.0).sin() * 0.5 + 0.5) as f32;
-            let a = (p.alpha * wave * 255.0) as u8;
-            let color = egui::Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), a);
+
+            // Breathing: slow sine pulse on alpha
+            let breath = ((t * 0.4 + p.phase).sin() * 0.5 + 0.5) * 0.6 + 0.4;
+            let a = (p.base_alpha * breath * 255.0) as u8;
+
+            let base_col = Self::particle_color(pal, p.color_idx);
+            let color = egui::Color32::from_rgba_premultiplied(base_col.r(), base_col.g(), base_col.b(), a);
+
+            // Outer glow (larger, more transparent)
+            if p.depth > 0.6 {
+                let glow_a = (a as f32 * 0.25) as u8;
+                let glow_col = egui::Color32::from_rgba_premultiplied(base_col.r(), base_col.g(), base_col.b(), glow_a);
+                painter.circle_filled(egui::pos2(sx, sy), p.radius * 2.5, glow_col);
+            }
+
             painter.circle_filled(egui::pos2(sx, sy), p.radius, color);
+        }
+    }
+
+    fn particle_color(pal: &Palette, idx: u8) -> egui::Color32 {
+        match idx {
+            0 => pal.accent,
+            1 => pal.accent2,
+            _ => pal.accent3,
         }
     }
 }
@@ -118,7 +218,6 @@ pub struct ChatApp {
     rt: tokio::runtime::Handle,
     db: Database,
     screen: Screen,
-    menu_ids: MenuIds,
 
     conversations: Vec<Conversation>,
     active_id: Option<String>,
@@ -143,24 +242,19 @@ pub struct ChatApp {
     particles: Particles,
     last_frame_time: Option<f64>,
 
-    /// Model search filter text
     model_filter: String,
-
-    /// Ephemeral mode: don't write to SQLite
     ephemeral: bool,
 
-    /// Search modal state
     show_search: bool,
     search_query: String,
-    search_results: Vec<(String, String, String)>, // (conv_id, title, snippet)
+    search_results: Vec<(String, String, String)>,
 
-    /// Compacting in progress
     is_compacting: bool,
     compact_rx: Option<mpsc::UnboundedReceiver<StreamToken>>,
 }
 
 impl ChatApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, rt: tokio::runtime::Handle, menu_ids: MenuIds) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, rt: tokio::runtime::Handle) -> Self {
         let theme = cc.egui_ctx.system_theme().unwrap_or(egui::Theme::Dark);
         let pal = Palette::for_theme(theme);
         apply_visuals(&cc.egui_ctx, theme, &pal);
@@ -183,12 +277,12 @@ impl ChatApp {
         let clipboard = arboard::Clipboard::new().map_err(|e| warn!("clipboard unavailable: {e}")).ok();
 
         Self {
-            rt, db, screen, menu_ids, conversations, active_id: None, messages: Vec::new(),
+            rt, db, screen, conversations, active_id: None, messages: Vec::new(),
             md_caches: HashMap::new(), streaming_md_cache: CommonMarkCache::default(),
             input: String::new(), stream_rx: None, is_streaming: false, last_error: None,
             scroll_to_bottom: false, model_idx: 0, region_idx: saved_region,
             show_system_prompt: false, clipboard, conv_usage: TokenUsage::default(),
-            last_usage: None, current_theme: theme, pal, particles: Particles::new(40),
+            last_usage: None, current_theme: theme, pal, particles: Particles::new(60),
             last_frame_time: None, model_filter: String::new(), ephemeral: false,
             show_search: false, search_query: String::new(), search_results: Vec::new(),
             is_compacting: false, compact_rx: None,
@@ -204,23 +298,12 @@ impl ChatApp {
         }
     }
 
-    /// Poll native menu events from muda
-    fn poll_menu_events(&mut self, ctx: &egui::Context) {
-        while let Ok(event) = muda::MenuEvent::receiver().try_recv() {
-            if event.id == self.menu_ids.change_key {
-                self.screen = Screen::Credentials(CredentialForm { api_key: String::new(), region_idx: self.region_idx });
-            } else if event.id == self.menu_ids.new_chat {
-                self.new_conversation();
-            } else if event.id == self.menu_ids.search {
-                self.show_search = true;
-                self.search_query.clear();
-                self.search_results.clear();
-            } else if event.id == self.menu_ids.compact {
-                self.compact_context(ctx);
-            } else if event.id == self.menu_ids.ephemeral {
-                self.ephemeral = !self.ephemeral;
-            }
-        }
+    fn get_dt_and_mouse(&mut self, ui: &egui::Ui) -> (f32, Option<egui::Pos2>) {
+        let now = ui.input(|i| i.time);
+        let dt = self.last_frame_time.map_or(0.016, |t| (now - t) as f32).min(0.1);
+        self.last_frame_time = Some(now);
+        let mouse = ui.input(|i| i.pointer.hover_pos());
+        (dt, mouse)
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
@@ -277,7 +360,6 @@ impl ChatApp {
     fn send_message(&mut self, ctx: &egui::Context) {
         let text = self.input.trim().to_string();
         if text.is_empty() { return; }
-        // Clear any previous error on new send attempt
         self.last_error = None;
 
         let conv_id = match &self.active_id {
@@ -358,20 +440,17 @@ impl ChatApp {
 
     fn compact_context(&mut self, ctx: &egui::Context) {
         if self.messages.is_empty() || self.is_streaming || self.is_compacting { return; }
-
-        // Build a prompt that asks the model to summarize the conversation
         let conv_info = self.active_conversation().map(|c| (c.model_id.clone(), c.region.clone()));
         let (model_id, region) = match conv_info { Some(t) => t, None => return };
 
-        let mut summary_prompt = String::from("Summarize the following conversation concisely, preserving all key facts, decisions, and context so it can be used as the starting context for a continuation. Output ONLY the summary, no preamble.\n\n");
+        let mut prompt = String::from("Summarize the following conversation concisely, preserving all key facts, decisions, and context so it can be used as the starting context for a continuation. Output ONLY the summary, no preamble.\n\n");
         for m in &self.messages {
             if m.content.is_empty() { continue; }
             let role = match m.role { Role::User => "User", Role::Assistant => "Assistant" };
-            summary_prompt.push_str(&format!("{role}: {}\n\n", m.content));
+            prompt.push_str(&format!("{role}: {}\n\n", m.content));
         }
 
-        let history = vec![("user".to_string(), summary_prompt)];
-        let rx = bedrock::spawn_stream(&self.rt, ctx.clone(), model_id, region, String::new(), history);
+        let rx = bedrock::spawn_stream(&self.rt, ctx.clone(), model_id, region, String::new(), vec![("user".into(), prompt)]);
         self.compact_rx = Some(rx);
         self.is_compacting = true;
     }
@@ -393,13 +472,11 @@ impl ChatApp {
             self.is_compacting = false;
             self.compact_rx = None;
             if !summary.is_empty() {
-                // Replace all messages with the compacted summary as a system-like assistant message
                 let conv_id = match &self.active_id { Some(id) => id.clone(), None => return };
                 self.messages.clear();
                 self.md_caches.clear();
                 let compacted = ChatMessage::new(&conv_id, Role::Assistant, &format!("[Compacted context]\n\n{summary}"));
                 if !self.ephemeral {
-                    // Delete old messages and insert new one
                     if let Some(conv) = self.active_conversation() {
                         let _ = self.db.delete_conversation(&conv.id);
                         let conv_clone = conv.clone();
@@ -423,20 +500,16 @@ impl ChatApp {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .show(ui.ctx(), |ui| {
                 let screen = ui.ctx().content_rect();
-                // Dim overlay
                 ui.painter().rect_filled(screen, 0.0, egui::Color32::from_black_alpha(120));
-
                 egui::Area::new(egui::Id::new("search_modal"))
                     .fixed_pos(egui::pos2(screen.center().x - 250.0, screen.top() + 80.0))
                     .show(ui.ctx(), |ui| {
-                        egui::Frame::new()
-                            .fill(pal.bg_modal).corner_radius(12.0)
+                        egui::Frame::new().fill(pal.bg_modal).corner_radius(12.0)
                             .stroke(egui::Stroke::new(1.0, pal.border))
                             .inner_margin(egui::Margin::same(20)).show(ui, |ui| {
                             ui.set_width(500.0);
                             ui.colored_label(pal.text_primary, egui::RichText::new("Search Chats").size(16.0).strong());
                             ui.add_space(8.0);
-
                             let resp = ui.add(egui::TextEdit::singleline(&mut self.search_query)
                                 .desired_width(f32::INFINITY).hint_text("Type to search..."));
                             if resp.changed() {
@@ -445,7 +518,6 @@ impl ChatApp {
                                 } else { Vec::new() };
                             }
                             resp.request_focus();
-
                             ui.add_space(8.0);
                             let mut to_open: Option<String> = None;
                             egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
@@ -453,26 +525,17 @@ impl ChatApp {
                                     ui.colored_label(pal.text_muted, "No results");
                                 }
                                 for (conv_id, title, snippet) in &self.search_results {
-                                    let resp = ui.add(egui::Label::new(
+                                    let r = ui.add(egui::Label::new(
                                         egui::RichText::new(title).color(pal.text_primary).size(13.0).strong()
                                     ).selectable(false).sense(egui::Sense::click()));
-                                    ui.colored_label(pal.text_muted, egui::RichText::new(
-                                        if snippet.len() > 80 { format!("{}...", &snippet[..77]) } else { snippet.clone() }
-                                    ).size(11.5));
+                                    let snip = if snippet.chars().count() > 80 { snippet.chars().take(77).collect::<String>() + "..." } else { snippet.clone() };
+                                    ui.colored_label(pal.text_muted, egui::RichText::new(snip).size(11.5));
                                     ui.add_space(4.0);
-                                    if resp.clicked() { to_open = Some(conv_id.clone()); }
+                                    if r.clicked() { to_open = Some(conv_id.clone()); }
                                 }
                             });
-
-                            if let Some(id) = to_open {
-                                self.select_conversation(&id);
-                                self.show_search = false;
-                            }
-
-                            // Escape to close
-                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                self.show_search = false;
-                            }
+                            if let Some(id) = to_open { self.select_conversation(&id); self.show_search = false; }
+                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) { self.show_search = false; }
                         });
                     });
             });
@@ -484,10 +547,8 @@ impl ChatApp {
         let pal = self.pal.clone();
         let rect = ui.max_rect();
         ui.painter().rect_filled(rect, 0.0, pal.bg_base);
-        let now = ui.input(|i| i.time);
-        let dt = self.last_frame_time.map_or(0.016, |t| (now - t) as f32).min(0.1);
-        self.last_frame_time = Some(now);
-        self.particles.draw(ui.painter(), rect, pal.accent, dt);
+        let (dt, mouse) = self.get_dt_and_mouse(ui);
+        self.particles.draw(ui.painter(), rect, &pal, dt, mouse);
 
         ui.vertical_centered(|ui| {
             ui.add_space(rect.height() * 0.28);
@@ -498,7 +559,6 @@ impl ChatApp {
                 ui.add_space(6.0);
                 ui.colored_label(pal.text_secondary, "Paste your Bedrock API key, or skip to use\nyour existing AWS config.");
                 ui.add_space(16.0);
-
                 let Screen::Credentials(form) = &mut self.screen else { return; };
                 ui.colored_label(pal.text_secondary, "API Key");
                 ui.add_space(2.0);
@@ -554,9 +614,20 @@ impl ChatApp {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(8.0);
+                // Settings gear button
+                if ui.add(egui::Button::new(egui::RichText::new("\u{2699}").size(16.0).color(pal.text_muted))
+                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0))).clicked() {
+                    self.screen = Screen::Credentials(CredentialForm { api_key: String::new(), region_idx: self.region_idx });
+                }
+                // New chat button
                 if ui.add(egui::Button::new(egui::RichText::new("+").size(16.0).color(pal.accent))
                     .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0))).clicked() {
                     self.new_conversation();
+                }
+                // Search button
+                if ui.add(egui::Button::new(egui::RichText::new("\u{1F50D}").size(13.0).color(pal.text_muted))
+                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0))).clicked() {
+                    self.show_search = true; self.search_query.clear(); self.search_results.clear();
                 }
             });
         });
@@ -600,10 +671,8 @@ impl ChatApp {
         let pal = self.pal.clone();
         let full_rect = ui.max_rect();
         ui.painter().rect_filled(full_rect, 0.0, pal.bg_base);
-        let now = ui.input(|i| i.time);
-        let dt = self.last_frame_time.map_or(0.016, |t| (now - t) as f32).min(0.1);
-        self.last_frame_time = Some(now);
-        self.particles.draw(ui.painter(), full_rect, pal.accent, dt);
+        let (dt, mouse) = self.get_dt_and_mouse(ui);
+        self.particles.draw(ui.painter(), full_rect, &pal, dt, mouse);
 
         if self.active_id.is_none() {
             ui.centered_and_justified(|ui| { ui.colored_label(pal.text_muted, "Select or create a conversation"); });
@@ -625,7 +694,6 @@ impl ChatApp {
                 if ui.small_button("dismiss").clicked() { self.last_error = None; }
             });
         }
-
         if self.is_compacting {
             ui.horizontal(|ui| { ui.add_space(16.0); ui.spinner(); ui.colored_label(pal.text_muted, "Compacting context..."); });
         }
@@ -639,7 +707,6 @@ impl ChatApp {
         let has_msgs = self.conv_has_messages();
         egui::Frame::new().fill(pal.bg_topbar).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
             ui.horizontal(|ui| {
-                // ── Searchable model picker ──
                 ui.colored_label(pal.text_secondary, "Model");
                 ui.add_space(2.0);
                 let current_name = MODELS[self.model_idx].name;
@@ -660,7 +727,6 @@ impl ChatApp {
                 });
 
                 ui.add_space(8.0);
-                // ── Region (locked after first message) ──
                 ui.colored_label(pal.text_secondary, "Region");
                 ui.add_space(2.0);
                 if has_msgs {
@@ -676,6 +742,21 @@ impl ChatApp {
                     self.show_system_prompt = !self.show_system_prompt;
                 }
 
+                // Ephemeral toggle
+                ui.add_space(4.0);
+                if ui.selectable_label(self.ephemeral, "Ephemeral").clicked() {
+                    self.ephemeral = !self.ephemeral;
+                }
+
+                // Compact button
+                if has_msgs && !self.is_streaming && !self.is_compacting {
+                    ui.add_space(4.0);
+                    if ui.small_button("Compact").clicked() {
+                        let ctx = ui.ctx().clone();
+                        self.compact_context(&ctx);
+                    }
+                }
+
                 if self.conv_usage.total_tokens > 0 {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.colored_label(pal.text_muted, egui::RichText::new(
@@ -686,7 +767,6 @@ impl ChatApp {
             });
         });
 
-        // Sync model/region to conversation
         let model_id = MODELS[self.model_idx].id.to_string();
         let region = REGIONS[self.region_idx].to_string();
         if let Some(conv) = self.active_conversation_mut() {
@@ -774,7 +854,6 @@ impl ChatApp {
                     let resp = ui.add_sized(egui::vec2(ui.available_width() - 60.0, 0.0),
                         egui::TextEdit::multiline(&mut self.input).hint_text(egui::RichText::new("Message...").color(pal.text_muted))
                             .desired_rows(rows).lock_focus(true).text_color(pal.text_primary));
-
                     let ce = ui.input_mut(|i| i.consume_shortcut(&sc) || i.consume_shortcut(&sc2));
                     let can = !self.is_streaming && !self.is_compacting && !self.input.trim().is_empty();
                     let bc = if can { pal.accent } else { pal.accent_dim };
@@ -823,7 +902,6 @@ impl eframe::App for ChatApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.check_theme(ui.ctx());
-        self.poll_menu_events(ui.ctx());
         self.poll_compact();
 
         // Cmd+K shortcut for search

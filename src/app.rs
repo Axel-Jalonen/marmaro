@@ -86,6 +86,26 @@ impl ChatApp {
 
         let conversations = db.list_conversations().unwrap_or_default();
 
+        // Try to restore saved API key — skip the modal if we have one
+        let saved_key = db.get_config("api_key").ok().flatten();
+        let saved_region = db
+            .get_config("region")
+            .ok()
+            .flatten()
+            .and_then(|r| REGIONS.iter().position(|&x| x == r))
+            .unwrap_or(0);
+
+        let screen = if let Some(ref key) = saved_key {
+            if !key.is_empty() {
+                std::env::set_var("AWS_BEARER_TOKEN_BEDROCK", key);
+                Screen::Chat
+            } else {
+                Screen::Credentials(CredentialForm::default())
+            }
+        } else {
+            Screen::Credentials(CredentialForm::default())
+        };
+
         let clipboard = arboard::Clipboard::new()
             .map_err(|e| warn!("clipboard unavailable: {e}"))
             .ok();
@@ -93,7 +113,7 @@ impl ChatApp {
         Self {
             rt,
             db,
-            screen: Screen::Credentials(CredentialForm::default()),
+            screen,
             conversations,
             active_id: None,
             messages: Vec::new(),
@@ -105,7 +125,7 @@ impl ChatApp {
             last_error: None,
             scroll_to_bottom: false,
             model_idx: 0,
-            region_idx: 0,
+            region_idx: saved_region,
             show_system_prompt: false,
             clipboard,
         }
@@ -380,7 +400,10 @@ impl ChatApp {
                             let Screen::Credentials(form) = &self.screen else {
                                 return;
                             };
-                            std::env::set_var("AWS_BEARER_TOKEN_BEDROCK", form.api_key.trim());
+                            let key = form.api_key.trim().to_string();
+                            std::env::set_var("AWS_BEARER_TOKEN_BEDROCK", &key);
+                            let _ = self.db.set_config("api_key", &key);
+                            let _ = self.db.set_config("region", REGIONS[form.region_idx]);
                             self.region_idx = form.region_idx;
                             self.screen = Screen::Chat;
                         }
@@ -396,6 +419,7 @@ impl ChatApp {
                             let Screen::Credentials(form) = &self.screen else {
                                 return;
                             };
+                            let _ = self.db.set_config("region", REGIONS[form.region_idx]);
                             self.region_idx = form.region_idx;
                             self.screen = Screen::Chat;
                         }

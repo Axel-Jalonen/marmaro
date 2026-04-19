@@ -40,7 +40,11 @@ impl Database {
                 created_at      TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_messages_conv
-                ON messages(conversation_id, created_at);",
+                ON messages(conversation_id, created_at);
+            CREATE TABLE IF NOT EXISTS config (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
         )?;
 
         Ok(Self { conn })
@@ -152,6 +156,28 @@ impl Database {
         self.conn.execute(
             "UPDATE messages SET content = ?1 WHERE id = ?2",
             params![content, id],
+        )?;
+        Ok(())
+    }
+
+    // ── Config (key-value) ─────────────────────────────────────────────
+
+    pub fn get_config(&self, key: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM config WHERE key = ?1")?;
+        let mut rows = stmt.query_map(params![key], |row| row.get(0))?;
+        match rows.next() {
+            Some(Ok(val)) => Ok(Some(val)),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn set_config(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO config (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
         )?;
         Ok(())
     }

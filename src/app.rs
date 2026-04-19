@@ -1638,11 +1638,11 @@ impl ChatApp {
                 row_resp.context_menu(|ui| {
                     if ui.button("✎  Rename").clicked() {
                         rename_start = Some((eph_id_clone.clone(), conv_title.clone()));
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("×  Delete").clicked() {
                         to_delete = Some(eph_id_clone.clone());
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
 
@@ -1795,11 +1795,11 @@ impl ChatApp {
                 row_resp.context_menu(|ui| {
                     if ui.button("✎  Rename").clicked() {
                         rename_start = Some((conv_id_ctx.clone(), conv_title_ctx.clone()));
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("×  Delete").clicked() {
                         to_delete = Some(conv_id_ctx.clone());
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
 
@@ -2268,56 +2268,67 @@ impl ChatApp {
 
         egui::Frame::new()
             .fill(pal.bg_base)
-            .inner_margin(egui::Margin { left: side_pad as i8, right: side_pad as i8, top: 8, bottom: 10 })
+            .inner_margin(egui::Margin { left: side_pad as i8, right: side_pad as i8, top: 6, bottom: 8 })
             .show(ui, |ui| {
                 egui::Frame::new()
                     .fill(pal.bg_input)
                     .corner_radius(12.0)
                     .stroke(egui::Stroke::new(1.0, pal.border_strong))
-                    .inner_margin(egui::Margin::symmetric(14, 10))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
                     .show(ui, |ui| {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_top(|ui| {
                             let rows =
-                                (self.input.chars().filter(|c| *c == '\n').count() + 1).clamp(1, 8);
+                                (self.input.chars().filter(|c| *c == '\n').count() + 1).clamp(1, 6);
 
-                            let _resp = ui.add_sized(
-                                egui::vec2(ui.available_width() - 60.0, 0.0),
+                            let text_width = ui.available_width() - 58.0;
+                            let resp = ui.add_sized(
+                                egui::vec2(text_width, 0.0),
                                 egui::TextEdit::multiline(&mut self.input)
                                     .hint_text(
                                         egui::RichText::new("Message...").color(pal.text_muted),
                                     )
                                     .desired_rows(rows)
+                                    .frame(egui::Frame::NONE)
                                     .text_color(pal.text_primary),
                             );
 
-                            ui.add_space(6.0);
+                            // Enter sends, Shift+Enter for newline
+                            let enter_pressed = resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            let shift_held = ui.input(|i| i.modifiers.shift);
+                            let should_send = enter_pressed && !shift_held;
+
+                            if should_send && self.input.ends_with('\n') {
+                                self.input.pop();
+                            }
 
                             let can = !self.is_streaming
                                 && !self.is_compacting
                                 && !self.input.trim().is_empty();
 
-                            let bc = if can { pal.accent } else { pal.bg_base };
+                            let bc = if can { pal.accent } else { pal.border };
                             let text_color = if can {
                                 egui::Color32::WHITE
                             } else {
                                 pal.text_muted
                             };
 
-                            let clicked = ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("Send").color(text_color).size(13.0),
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::BOTTOM), |ui| {
+                                let clicked = ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("Send").color(text_color).size(13.0),
+                                        )
+                                        .fill(bc)
+                                        .corner_radius(8.0)
+                                        .min_size(egui::vec2(48.0, 28.0)),
                                     )
-                                    .fill(bc)
-                                    .corner_radius(8.0)
-                                    .min_size(egui::vec2(52.0, 30.0)),
-                                )
-                                .clicked();
+                                    .clicked();
 
-                            if clicked && can {
-                                let ctx = ui.ctx().clone();
-                                self.send_message(&ctx);
-                            }
+                                if (clicked || should_send) && can {
+                                    let ctx = ui.ctx().clone();
+                                    self.send_message(&ctx);
+                                }
+                            });
                         });
                     });
             });

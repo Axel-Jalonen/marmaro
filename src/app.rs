@@ -5,7 +5,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::bedrock::{self, AwsCreds, StreamToken};
+use crate::bedrock::{self, StreamToken};
 use crate::db::Database;
 use crate::message::{ChatMessage, Conversation, Role, MODELS, REGIONS};
 
@@ -13,8 +13,7 @@ use crate::message::{ChatMessage, Conversation, Role, MODELS, REGIONS};
 
 #[derive(Default)]
 struct CredentialForm {
-    access_key: String,
-    secret_key: String,
+    api_key: String,
     region_idx: usize,
 }
 
@@ -31,9 +30,6 @@ pub struct ChatApp {
     rt: tokio::runtime::Handle,
     db: Database,
     screen: Screen,
-
-    /// Resolved AWS credentials (None = use default chain)
-    aws_creds: AwsCreds,
 
     conversations: Vec<Conversation>,
     active_id: Option<String>,
@@ -78,7 +74,6 @@ impl ChatApp {
             rt,
             db,
             screen: Screen::Credentials(CredentialForm::default()),
-            aws_creds: AwsCreds::DefaultChain,
             conversations,
             active_id: None,
             messages: Vec::new(),
@@ -224,7 +219,6 @@ impl ChatApp {
         let rx = bedrock::spawn_stream(
             &self.rt,
             ctx.clone(),
-            self.aws_creds.clone(),
             model_id,
             region,
             system_prompt,
@@ -312,26 +306,19 @@ impl ChatApp {
                     ui.set_width(380.0);
                     ui.heading("Bedrock Chat");
                     ui.add_space(4.0);
-                    ui.label("Paste your AWS keys, or skip to use your existing config.");
+                    ui.label("Paste your Bedrock API key, or skip to use your\nexisting AWS config (~/.aws, env vars, SSO).");
                     ui.add_space(12.0);
 
                     let Screen::Credentials(form) = &mut self.screen else {
                         return;
                     };
 
-                    ui.label("Access Key ID");
+                    ui.label("API Key");
                     ui.add(
-                        egui::TextEdit::singleline(&mut form.access_key)
+                        egui::TextEdit::singleline(&mut form.api_key)
                             .desired_width(f32::INFINITY)
-                            .hint_text("AKIA..."),
-                    );
-                    ui.add_space(4.0);
-
-                    ui.label("Secret Access Key");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut form.secret_key)
-                            .desired_width(f32::INFINITY)
-                            .password(true),
+                            .password(true)
+                            .hint_text("Paste Bedrock API key..."),
                     );
                     ui.add_space(4.0);
 
@@ -352,21 +339,18 @@ impl ChatApp {
                         let Screen::Credentials(form) = &self.screen else {
                             return;
                         };
-                        let has_keys =
-                            !form.access_key.trim().is_empty() && !form.secret_key.trim().is_empty();
+                        let has_key = !form.api_key.trim().is_empty();
 
                         if ui
-                            .add_enabled(has_keys, egui::Button::new("Connect"))
+                            .add_enabled(has_key, egui::Button::new("Connect"))
                             .clicked()
                         {
                             let Screen::Credentials(form) = &self.screen else {
                                 return;
                             };
+                            // Set the env var so the AWS SDK picks it up as bearer auth
+                            std::env::set_var("AWS_BEARER_TOKEN_BEDROCK", form.api_key.trim());
                             self.region_idx = form.region_idx;
-                            self.aws_creds = AwsCreds::Explicit {
-                                access_key: form.access_key.trim().to_string(),
-                                secret_key: form.secret_key.trim().to_string(),
-                            };
                             self.screen = Screen::Chat;
                         }
 
@@ -375,7 +359,6 @@ impl ChatApp {
                                 return;
                             };
                             self.region_idx = form.region_idx;
-                            self.aws_creds = AwsCreds::DefaultChain;
                             self.screen = Screen::Chat;
                         }
                     });

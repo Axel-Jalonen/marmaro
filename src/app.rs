@@ -442,6 +442,30 @@ impl ChatApp {
 
     fn render_search_modal(&mut self, ui: &mut egui::Ui) {
         let pal = self.pal.clone();
+        
+        // If no search query, show all conversations for browsing
+        let items: Vec<(String, String, String)> = if self.search_query.len() >= 2 {
+            self.search_results.clone()
+        } else if self.search_query.is_empty() {
+            // Show recent conversations when no search
+            self.conversations.iter().take(20)
+                .map(|c| (c.id.clone(), c.title.clone(), String::new()))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        
+        // Arrow key navigation (works even before searching)
+        let item_count = items.len();
+        if item_count > 0 {
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+                self.search_selected_idx = (self.search_selected_idx + 1).min(item_count - 1);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+                self.search_selected_idx = self.search_selected_idx.saturating_sub(1);
+            }
+        }
+        
         egui::Area::new(egui::Id::new("search_overlay"))
             .fixed_pos(egui::pos2(0.0, 0.0))
             .show(ui.ctx(), |ui| {
@@ -470,41 +494,42 @@ impl ChatApp {
                                 self.search_just_opened = false;
                             }
                             
-                            // Arrow key navigation
-                            let result_count = self.search_results.len();
-                            if result_count > 0 {
-                                if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
-                                    self.search_selected_idx = (self.search_selected_idx + 1).min(result_count - 1);
-                                }
-                                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-                                    self.search_selected_idx = self.search_selected_idx.saturating_sub(1);
-                                }
-                            }
-                            
                             ui.add_space(8.0);
                             let mut to_open: Option<String> = None;
                             
                             // Enter to select
-                            if ui.input(|i| i.key_pressed(egui::Key::Enter)) && result_count > 0 {
-                                to_open = Some(self.search_results[self.search_selected_idx].0.clone());
+                            if ui.input(|i| i.key_pressed(egui::Key::Enter)) && item_count > 0 && self.search_selected_idx < items.len() {
+                                to_open = Some(items[self.search_selected_idx].0.clone());
                             }
                             
-                            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                                if self.search_results.is_empty() && self.search_query.len() >= 2 {
+                            egui::ScrollArea::vertical().max_height(400.0).auto_shrink([false, false]).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                
+                                if items.is_empty() && self.search_query.len() >= 2 {
                                     ui.colored_label(pal.text_muted, "No results");
+                                } else if items.is_empty() && self.search_query.len() == 1 {
+                                    ui.colored_label(pal.text_muted, "Type more to search...");
                                 }
-                                for (idx, (conv_id, title, snippet)) in self.search_results.iter().enumerate() {
+                                
+                                for (idx, (conv_id, title, snippet)) in items.iter().enumerate() {
                                     let is_selected = idx == self.search_selected_idx;
                                     let bg = if is_selected { pal.selected } else { egui::Color32::TRANSPARENT };
-                                    egui::Frame::new().fill(bg).corner_radius(6.0).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
-                                        let r = ui.add(egui::Label::new(
+                                    
+                                    let frame_resp = egui::Frame::new().fill(bg).corner_radius(6.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.add(egui::Label::new(
                                             egui::RichText::new(title).color(pal.text_primary).size(13.0).strong()
-                                        ).selectable(false).sense(egui::Sense::click()));
-                                        let snip = if snippet.chars().count() > 80 { snippet.chars().take(77).collect::<String>() + "..." } else { snippet.clone() };
-                                        ui.colored_label(pal.text_muted, egui::RichText::new(snip).size(11.5));
-                                        if r.clicked() { to_open = Some(conv_id.clone()); }
-                                        if r.hovered() { self.search_selected_idx = idx; }
+                                        ).selectable(false));
+                                        if !snippet.is_empty() {
+                                            let snip = if snippet.chars().count() > 80 { snippet.chars().take(77).collect::<String>() + "..." } else { snippet.clone() };
+                                            ui.colored_label(pal.text_muted, egui::RichText::new(snip).size(11.5));
+                                        }
                                     });
+                                    
+                                    let row_resp = ui.interact(frame_resp.response.rect, egui::Id::new(("search_row", idx)), egui::Sense::click());
+                                    if row_resp.clicked() { to_open = Some(conv_id.clone()); }
+                                    if row_resp.hovered() { self.search_selected_idx = idx; }
+                                    
                                     ui.add_space(2.0);
                                 }
                             });
@@ -651,8 +676,8 @@ impl ChatApp {
                     ui.colored_label(pal.text_primary, egui::RichText::new(if is_settings { "Settings" } else { "Bedrock Chat" }).size(24.0).strong());
                     if is_settings {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.add(egui::Button::new(egui::RichText::new("\u{2715}").size(16.0).color(pal.text_muted))
-                                .fill(egui::Color32::TRANSPARENT).corner_radius(4.0)).clicked() {
+                            if ui.add(egui::Button::new(egui::RichText::new("x").size(16.0).color(pal.text_muted))
+                                .fill(egui::Color32::TRANSPARENT).corner_radius(4.0).min_size(egui::vec2(28.0, 28.0))).clicked() {
                                 self.screen = Screen::Chat;
                             }
                         });
@@ -737,40 +762,44 @@ impl ChatApp {
         ui.horizontal(|ui| {
             ui.add_space(8.0);
             ui.colored_label(pal.text_primary, egui::RichText::new("Chats").size(16.0).strong());
-            if self.ephemeral {
-                ui.colored_label(pal.accent, egui::RichText::new("ephemeral").size(10.0));
-            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(8.0);
-                // Settings gear button
-                if ui.add(egui::Button::new(egui::RichText::new("\u{2699}").size(16.0).color(pal.text_muted))
-                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0))).clicked() {
+                // Settings gear button (use @ as gear substitute)
+                if ui.add(egui::Button::new(egui::RichText::new("@").size(14.0).color(pal.text_muted))
+                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0)))
+                    .on_hover_text("Settings")
+                    .clicked() {
                     self.screen = Screen::Credentials(CredentialForm { api_key: String::new(), region_idx: self.region_idx, is_settings: true });
                 }
                 // New chat button
                 let new_btn = ui.add(egui::Button::new(egui::RichText::new("+").size(16.0).color(pal.accent))
-                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0)));
+                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0)))
+                    .on_hover_text("New chat");
                 if new_btn.clicked() {
                     self.burst.spawn(new_btn.rect.center(), 20);
                     self.new_conversation();
                 }
                 // Ephemeral toggle - also creates new chat when turning on
-                let eph_btn = ui.add(egui::Button::new(egui::RichText::new(if self.ephemeral { "*" } else { "o" }).size(13.0)
+                let eph_label = if self.ephemeral { "~" } else { "~" };
+                let eph_btn = ui.add(egui::Button::new(egui::RichText::new(eph_label).size(14.0)
                     .color(if self.ephemeral { pal.accent } else { pal.text_muted }))
-                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0)))
-                    .on_hover_text(if self.ephemeral { "Ephemeral mode ON\n(chats not saved)" } else { "Click for ephemeral chat" });
+                    .fill(if self.ephemeral { pal.selected } else { egui::Color32::TRANSPARENT })
+                    .corner_radius(6.0).min_size(egui::vec2(28.0, 28.0)))
+                    .on_hover_text(if self.ephemeral { "Ephemeral ON (click to exit)" } else { "New ephemeral chat" });
                 if eph_btn.clicked() {
                     self.ephemeral = !self.ephemeral;
                     if self.ephemeral {
-                        // Create a new ephemeral chat
                         self.burst.spawn(eph_btn.rect.center(), 20);
                         self.new_conversation();
                     }
                 }
                 // Search button
-                if ui.add(egui::Button::new(egui::RichText::new("\u{1F50D}").size(13.0).color(pal.text_muted))
-                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0))).clicked() {
+                if ui.add(egui::Button::new(egui::RichText::new("/").size(14.0).color(pal.text_muted))
+                    .fill(egui::Color32::TRANSPARENT).corner_radius(6.0).min_size(egui::vec2(28.0, 28.0)))
+                    .on_hover_text("Search chats (Cmd+K)")
+                    .clicked() {
                     self.show_search = true; self.search_just_opened = true; self.search_query.clear(); self.search_results.clear();
+                    self.search_selected_idx = 0;
                 }
             });
         });
@@ -821,6 +850,34 @@ impl ChatApp {
         let pal = self.pal.clone();
         let full_rect = ui.max_rect();
         ui.painter().rect_filled(full_rect, 0.0, pal.bg_base);
+
+        // Draw faint ghost for ephemeral mode
+        if self.ephemeral {
+            let center = full_rect.center();
+            let ghost_color = egui::Color32::from_rgba_unmultiplied(
+                pal.text_muted.r(), pal.text_muted.g(), pal.text_muted.b(), 15
+            );
+            // Simple ghost shape: head circle + body
+            let head_center = egui::pos2(center.x, center.y - 30.0);
+            ui.painter().circle_filled(head_center, 40.0, ghost_color);
+            // Body (rounded rect below)
+            let body_rect = egui::Rect::from_center_size(
+                egui::pos2(center.x, center.y + 30.0),
+                egui::vec2(80.0, 70.0)
+            );
+            ui.painter().rect_filled(body_rect, 20.0, ghost_color);
+            // Eyes
+            let eye_color = egui::Color32::from_rgba_unmultiplied(
+                pal.bg_base.r(), pal.bg_base.g(), pal.bg_base.b(), 30
+            );
+            ui.painter().circle_filled(egui::pos2(center.x - 15.0, center.y - 35.0), 8.0, eye_color);
+            ui.painter().circle_filled(egui::pos2(center.x + 15.0, center.y - 35.0), 8.0, eye_color);
+            // Wavy bottom (3 bumps)
+            for i in 0..3 {
+                let bx = center.x - 30.0 + (i as f32 * 30.0);
+                ui.painter().circle_filled(egui::pos2(bx, center.y + 65.0), 15.0, ghost_color);
+            }
+        }
 
         // Draw any active burst particles
         let dt = self.get_dt(ui);

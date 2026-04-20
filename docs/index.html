@@ -54,34 +54,6 @@
             margin-bottom: 24px;
         }
         
-        .badges {
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-bottom: 24px;
-        }
-        
-        .badges img {
-            height: 20px;
-        }
-        
-        .cta {
-            display: inline-block;
-            background: var(--accent);
-            color: #ffffff;
-            padding: 12px 24px;
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 1rem;
-            transition: opacity 0.2s;
-        }
-        
-        .cta:hover {
-            opacity: 0.9;
-        }
-        
         .warning {
             background: light-dark(#fff8e1, rgba(255, 180, 0, 0.08));
             border: 1px solid light-dark(#ffd54f, rgba(255, 180, 0, 0.25));
@@ -118,6 +90,7 @@
             margin: 32px auto;
             max-width: 1000px;
             justify-content: center;
+            align-items: flex-end;
             flex-wrap: wrap;
         }
         
@@ -126,6 +99,14 @@
             min-width: 300px;
             max-width: 480px;
             margin: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .screenshots-comparison .screenshot img {
+            flex: 1;
+            object-fit: contain;
+            object-position: bottom;
         }
         
         .screenshot-label {
@@ -170,6 +151,39 @@
         .feature p {
             color: var(--muted);
             font-size: 0.9rem;
+        }
+        
+        .tech-section {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+        }
+        
+        .tech-section p {
+            color: var(--muted);
+            font-size: 0.95rem;
+            margin-bottom: 12px;
+        }
+        
+        .tech-section p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .tech-section a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        
+        .tech-section a:hover {
+            text-decoration: underline;
+        }
+        
+        .tech-section code {
+            background: var(--bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85rem;
         }
         
         .shortcuts {
@@ -250,11 +264,6 @@
         <header>
             <h1>Bedrock Chat</h1>
             <p class="tagline">Native macOS client for AWS Bedrock</p>
-            <div class="badges">
-                <img src="https://github.com/Axel-Jalonen/bedrock-chat/actions/workflows/rust.yml/badge.svg" alt="Build">
-                <img src="https://img.shields.io/github/v/release/Axel-Jalonen/bedrock-chat?label=download" alt="Release">
-            </div>
-            <a href="https://github.com/Axel-Jalonen/bedrock-chat/releases/latest" class="cta">Download for macOS</a>
             <div class="warning">
                 <strong>Alpha.</strong> Early software — expect bugs. Not audited.
             </div>
@@ -310,6 +319,30 @@
                     <h3>Smart Scroll</h3>
                     <p>Read while streaming uninterrupted</p>
                 </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Pure Rust, No Compromises</h2>
+            <div class="tech-section">
+                <p>
+                    Bedrock Chat is written entirely in Rust with <a href="https://github.com/emilk/egui">egui</a> for the UI. 
+                    No Electron, no WebView, no JavaScript runtime — just native code that starts instantly and sips memory.
+                </p>
+                <p>
+                    The LaTeX math rendering is powered by <a href="https://github.com/AX-Jalonen/rex-retex-patched">a patched fork of ReX</a>, 
+                    a pure-Rust TeX layout engine. The original ReX hadn't been updated for modern Rust (broken <code>static_map</code> proc-macro), 
+                    so we replaced it with <code>LazyLock&lt;HashMap&gt;</code> and added support for missing commands that LLMs commonly output: 
+                    <code>\text</code>, <code>\operatorname</code>, <code>\boxed</code>, <code>\implies</code>, Cyrillic characters, and more.
+                </p>
+                <p>
+                    Markdown parsing uses <a href="https://github.com/raphlinus/pulldown-cmark">pulldown-cmark</a>, with a custom renderer 
+                    that seamlessly interleaves styled text and math expressions on the same line — something most chat UIs can't do without 
+                    forcing line breaks around every equation.
+                </p>
+                <p>
+                    Credentials are stored in the macOS Keychain, not in plaintext config files.
+                </p>
             </div>
         </section>
 

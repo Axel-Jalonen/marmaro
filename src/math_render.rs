@@ -148,17 +148,13 @@ impl Renderer for EguiRenderer {
 
 // ── Rendering into egui ─────────────────────────────────────────────────
 
-/// Render a LaTeX math string into the given egui `Ui`.
-/// `display` controls whether to use Display style (large fractions, centered limits)
-/// or Text/inline style (smaller fractions, side limits).
-/// Returns the size of the rendered math, or None on parse error.
-pub fn render_math_ui(
-    ui: &mut egui::Ui,
+/// Pre-layout math: parse and get draw commands + size without painting.
+/// Returns (commands, width, height) or None on parse error.
+pub fn layout_math(
     tex: &str,
     font_size: f32,
-    color: egui::Color32,
     display: bool,
-) -> Option<egui::Vec2> {
+) -> Option<(Vec<DrawCmd>, f32, f32)> {
     let renderer = EguiRenderer::new(font_size as u16, display);
     let mut commands = Vec::new();
     match renderer.render_to(&mut commands, tex) {
@@ -169,81 +165,43 @@ pub fn render_math_ui(
         }
     }
 
-    // Extract canvas size from sentinel at end
-    let (canvas_w, canvas_h) = if let Some(DrawCmd::Glyph {
-        x,
-        y,
-        codepoint: 0,
-        scale,
-    }) = commands.last()
-    {
-        if *scale == 0.0 {
-            let dims = (*x as f32, *y as f32);
-            commands.pop();
-            dims
-        } else {
-            (200.0, 40.0) // fallback
-        }
-    } else {
-        (200.0, 40.0)
-    };
+    let (w, h) = extract_canvas_size(&mut commands);
+    Some((commands, w, h))
+}
 
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(canvas_w, canvas_h),
-        egui::Sense::hover(),
-    );
-
-    if !ui.is_rect_visible(rect) {
-        return Some(egui::vec2(canvas_w, canvas_h));
-    }
-
-    let painter = ui.painter_at(rect);
-    let origin = rect.left_top();
-
+/// Paint pre-computed math draw commands at a given origin.
+pub fn paint_math_commands(
+    painter: &egui::Painter,
+    commands: &[DrawCmd],
+    origin: egui::Pos2,
+    font_size: f32,
+    color: egui::Color32,
+) {
     let mut color_stack: Vec<egui::Color32> = vec![color];
 
-    for cmd in &commands {
+    for cmd in commands {
         match cmd {
             DrawCmd::Glyph {
-                x,
-                y,
-                codepoint,
-                scale,
+                x, y, codepoint, scale,
             } => {
-                if *codepoint == 0 {
-                    continue;
-                }
+                if *codepoint == 0 { continue; }
                 let current_color = *color_stack.last().unwrap_or(&color);
                 if let Some(ch) = char::from_u32(*codepoint) {
                     let glyph_size = font_size * (*scale as f32);
                     let pos = egui::pos2(origin.x + *x as f32, origin.y + *y as f32);
-
-                    // egui draws text from top-left, but ReX positions
-                    // are at the baseline. We need to shift up by the ascent.
-                    // XITS Math has ascent ~0.8 of em.
                     let baseline_offset = glyph_size * 0.8;
                     let draw_pos = egui::pos2(pos.x, pos.y - baseline_offset);
-
-                    // Use the "Math" font family (XITS Math) for correct glyph rendering
                     let math_font = egui::FontId {
                         size: glyph_size,
                         family: egui::FontFamily::Name("Math".into()),
                     };
-                    let galley = ui.painter().layout_no_wrap(
-                        ch.to_string(),
-                        math_font,
-                        current_color,
+                    let galley = painter.layout_no_wrap(
+                        ch.to_string(), math_font, current_color,
                     );
-
                     painter.galley(draw_pos, galley, current_color);
                 }
             }
-            DrawCmd::Rule {
-                x,
-                y,
-                width,
-                height,
-            } => {
+            DrawCmd::Rule { x, y, width, height } => {
                 let current_color = *color_stack.last().unwrap_or(&color);
                 let rect = egui::Rect::from_min_size(
                     egui::pos2(origin.x + *x as f32, origin.y + *y as f32),
@@ -260,14 +218,193 @@ pub fn render_math_ui(
                 color_stack.push(c);
             }
             DrawCmd::PopColor => {
-                if color_stack.len() > 1 {
-                    color_stack.pop();
-                }
+                if color_stack.len() > 1 { color_stack.pop(); }
             }
         }
     }
+}
+
+fn extract_canvas_size(commands: &mut Vec<DrawCmd>) -> (f32, f32) {
+    if let Some(DrawCmd::Glyph { x, y, codepoint: 0, scale }) = commands.last() {
+        if *scale == 0.0 {
+            let dims = (*x as f32, *y as f32);
+            commands.pop();
+            return dims;
+        }
+    }
+    (200.0, 40.0)
+}
+
+/// Render a LaTeX math string into the given egui `Ui`.
+/// `display` controls whether to use Display style (large fractions, centered limits)
+/// or Text/inline style (smaller fractions, side limits).
+/// Returns the size of the rendered math, or None on parse error.
+pub fn render_math_ui(
+    ui: &mut egui::Ui,
+    tex: &str,
+    font_size: f32,
+    color: egui::Color32,
+    display: bool,
+) -> Option<egui::Vec2> {
+    let (commands, canvas_w, canvas_h) = layout_math(tex, font_size, display)?;
+
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(canvas_w, canvas_h),
+        egui::Sense::hover(),
+    );
+
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter_at(rect);
+        paint_math_commands(&painter, &commands, rect.left_top(), font_size, color);
+    }
 
     Some(egui::vec2(canvas_w, canvas_h))
+}
+
+/// Render a paragraph with inline math using a single LayoutJob.
+/// Text flows naturally with line-breaking; math is overlaid at the correct positions.
+pub fn render_inline_paragraph(
+    ui: &mut egui::Ui,
+    segments: &[Segment],
+    text_size: f32,
+    math_size: f32,
+    color: egui::Color32,
+) {
+    let wrap_width = ui.available_width();
+
+    // Phase 1: Build LayoutJob, recording where math placeholders go.
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = wrap_width;
+
+    let text_font = egui::FontId::proportional(text_size);
+    let text_format = egui::text::TextFormat {
+        font_id: text_font.clone(),
+        color,
+        ..Default::default()
+    };
+
+    struct MathPlaceholder {
+        byte_start: usize,
+        byte_end: usize,
+        commands: Vec<DrawCmd>,
+        width: f32,
+        height: f32,
+    }
+    let mut math_placeholders: Vec<MathPlaceholder> = Vec::new();
+
+    for seg in segments {
+        match seg {
+            Segment::Text(text) => {
+                let text = text.replace('\n', " ");
+                job.append(&text, 0.0, text_format.clone());
+            }
+            Segment::InlineMath(tex) => {
+                if let Some((commands, w, h)) = layout_math(tex, math_size, false) {
+                    // Insert placeholder spaces that approximate the math width.
+                    // We use OBJECT REPLACEMENT CHAR as a visible-width placeholder.
+                    // Calculate how many space chars we need to fill the width.
+                    let byte_start = job.text.len();
+
+                    // Use a single special char as placeholder; we'll size it via
+                    // leading_space to reserve the correct width.
+                    // Actually, LayoutJob doesn't let us set per-char width.
+                    // Instead, use leading_space to push the next content right.
+                    // But we need the placeholder to OCCUPY space in the flow.
+                    //
+                    // Simplest approach: insert a single space char with
+                    // leading_space = math_width. The space itself is narrow,
+                    // so total reservation ≈ math_width.
+                    let placeholder = "\u{00A0}"; // non-breaking space
+                    let start = job.text.len();
+                    job.text.push_str(placeholder);
+                    let end = job.text.len();
+                    job.sections.push(egui::text::LayoutSection {
+                        leading_space: w,
+                        byte_range: start..end,
+                        format: egui::text::TextFormat {
+                            font_id: egui::FontId::proportional(text_size),
+                            color: egui::Color32::TRANSPARENT, // invisible
+                            ..Default::default()
+                        },
+                    });
+
+                    let byte_end = job.text.len();
+                    math_placeholders.push(MathPlaceholder {
+                        byte_start,
+                        byte_end,
+                        commands,
+                        width: w,
+                        height: h,
+                    });
+                } else {
+                    // Parse error fallback
+                    let fallback = format!("${}$", tex);
+                    job.append(&fallback, 0.0, egui::text::TextFormat {
+                        font_id: text_font.clone(),
+                        color: egui::Color32::from_rgb(150, 150, 150),
+                        ..Default::default()
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Phase 2: Layout the galley
+    let galley = ui.painter().layout_job(job);
+    let galley_size = galley.size();
+
+    // Phase 3: Allocate space and paint
+    let (rect, _) = ui.allocate_exact_size(galley_size, egui::Sense::hover());
+
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+
+    let painter = ui.painter_at(rect);
+    let origin = rect.left_top();
+
+    // Paint the text galley
+    painter.galley(origin, galley.clone(), color);
+
+    // Phase 4: Find placeholder positions and paint math overlays
+    for placeholder in &math_placeholders {
+        // Find the position of the placeholder character in the galley
+        if let Some(pos) = find_char_position(&galley, placeholder.byte_start) {
+            let math_origin = egui::pos2(
+                origin.x + pos.x - placeholder.width,
+                origin.y + pos.y,
+            );
+            paint_math_commands(
+                &painter,
+                &placeholder.commands,
+                math_origin,
+                math_size,
+                color,
+            );
+        }
+    }
+}
+
+/// Find the position of a character at the given byte offset in the galley.
+fn find_char_position(galley: &egui::Galley, byte_offset: usize) -> Option<egui::Pos2> {
+    // Convert byte offset to char offset
+    let char_offset = galley.job.text[..byte_offset].chars().count();
+
+    let mut chars_seen = 0;
+    for row in &galley.rows {
+        for glyph in &row.glyphs {
+            if chars_seen == char_offset {
+                return Some(egui::pos2(row.pos.x + glyph.pos.x, row.pos.y));
+            }
+            chars_seen += 1;
+        }
+        // Account for newline characters that don't have glyphs
+        if row.ends_with_newline {
+            chars_seen += 1;
+        }
+    }
+    None
 }
 
 // ── Math segment parsing ────────────────────────────────────────────────

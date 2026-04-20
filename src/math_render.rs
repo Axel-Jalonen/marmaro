@@ -232,6 +232,29 @@ fn preprocess_latex(tex: &str) -> String {
         break;
     }
     
+    // \big, \Big, \bigg, \Bigg (and variants like \biggl, \biggr, \bigm etc.)
+    // ReX has these but its expect_type is strict about atom types, so \big( fails.
+    // Strip the size prefix and just keep the delimiter.
+    for prefix in &["\\Bigg", "\\bigg", "\\Big", "\\big"] {
+        // Match \bigl, \bigr, \bigm and bare \big etc.
+        // We need to be careful: \bigg must be checked before \big
+        let mut new_result = String::new();
+        let mut remaining = result.as_str();
+        while let Some(pos) = remaining.find(prefix) {
+            new_result.push_str(&remaining[..pos]);
+            let after = &remaining[pos + prefix.len()..];
+            // Skip optional suffix: l, r, m
+            let after = if after.starts_with('l') || after.starts_with('r') || after.starts_with('m') {
+                &after[1..]
+            } else {
+                after
+            };
+            remaining = after;
+        }
+        new_result.push_str(remaining);
+        result = new_result;
+    }
+    
     result
 }
 

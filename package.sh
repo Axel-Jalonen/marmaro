@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-APP_NAME="BedrockChat"
+APP_NAME="Marmaro"
 BUNDLE_ID="com.bedrockchat.app"
 VERSION="0.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

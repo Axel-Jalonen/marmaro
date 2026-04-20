@@ -155,9 +155,12 @@ pub fn layout_math(
     font_size: f32,
     display: bool,
 ) -> Option<(Vec<DrawCmd>, f32, f32)> {
+    // Preprocess to handle unsupported commands
+    let tex = preprocess_latex(tex);
+    
     let renderer = EguiRenderer::new(font_size as u16, display);
     let mut commands = Vec::new();
-    match renderer.render_to(&mut commands, tex) {
+    match renderer.render_to(&mut commands, &tex) {
         Ok(()) => {}
         Err(e) => {
             tracing::warn!("ReX parse error for {:?}: {}", tex, e);
@@ -167,6 +170,88 @@ pub fn layout_math(
 
     let (w, h) = extract_canvas_size(&mut commands);
     Some((commands, w, h))
+}
+
+/// Preprocess LaTeX to handle commands that ReX doesn't support.
+fn preprocess_latex(tex: &str) -> String {
+    let mut result = tex.to_string();
+    
+    // \boxed{...} -> just render the content (we lose the box, but at least it renders)
+    // A proper fix would add box support to ReX
+    while let Some(start) = result.find("\\boxed{") {
+        let brace_start = start + 7;
+        if let Some(end) = find_matching_brace(&result[brace_start..]) {
+            let content = &result[brace_start..brace_start + end];
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                content,
+                &result[brace_start + end + 1..]
+            );
+        } else {
+            break;
+        }
+    }
+    
+    // \cancel{...} -> just render the content
+    while let Some(start) = result.find("\\cancel{") {
+        let brace_start = start + 8;
+        if let Some(end) = find_matching_brace(&result[brace_start..]) {
+            let content = &result[brace_start..brace_start + end];
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                content,
+                &result[brace_start + end + 1..]
+            );
+        } else {
+            break;
+        }
+    }
+    
+    // \textcolor{color}{...} -> just render the content
+    while let Some(start) = result.find("\\textcolor{") {
+        let first_brace = start + 11;
+        // Skip the color argument
+        if let Some(color_end) = find_matching_brace(&result[first_brace..]) {
+            let after_color = first_brace + color_end + 1;
+            // Now find the content brace
+            if result[after_color..].starts_with('{') {
+                if let Some(content_end) = find_matching_brace(&result[after_color + 1..]) {
+                    let content = &result[after_color + 1..after_color + 1 + content_end];
+                    result = format!(
+                        "{}{}{}",
+                        &result[..start],
+                        content,
+                        &result[after_color + 1 + content_end + 1..]
+                    );
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+    
+    result
+}
+
+/// Find the position of the matching closing brace, accounting for nesting.
+/// Returns the index of the closing brace relative to the start of the string.
+fn find_matching_brace(s: &str) -> Option<usize> {
+    let mut depth = 1;
+    for (i, c) in s.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Paint pre-computed math draw commands at a given origin.

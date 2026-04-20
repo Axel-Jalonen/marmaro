@@ -40,6 +40,13 @@ struct MarkdownRenderer<'a> {
     code_block_content: String,
     code_block_lang: Option<String>,
     
+    // Table state
+    in_table: bool,
+    in_table_head: bool,
+    table_rows: Vec<Vec<String>>,
+    current_row: Vec<String>,
+    current_cell: String,
+    
     // Accumulated text for the current paragraph/inline context
     // We accumulate text and render it all at once to handle math properly
     pending_text: Vec<TextSpan>,
@@ -71,6 +78,11 @@ impl<'a> MarkdownRenderer<'a> {
             in_code_block: false,
             code_block_content: String::new(),
             code_block_lang: None,
+            in_table: false,
+            in_table_head: false,
+            table_rows: Vec::new(),
+            current_row: Vec::new(),
+            current_cell: String::new(),
             pending_text: Vec::new(),
         }
     }
@@ -153,6 +165,21 @@ impl<'a> MarkdownRenderer<'a> {
             Tag::Link { .. } | Tag::Image { .. } => {
                 // We'll handle the text inside, links just underline
             }
+            Tag::Table(_alignments) => {
+                self.flush_text();
+                self.in_table = true;
+                self.table_rows.clear();
+            }
+            Tag::TableHead => {
+                self.in_table_head = true;
+                self.current_row.clear();
+            }
+            Tag::TableRow => {
+                self.current_row.clear();
+            }
+            Tag::TableCell => {
+                self.current_cell.clear();
+            }
             _ => {}
         }
     }
@@ -209,6 +236,24 @@ impl<'a> MarkdownRenderer<'a> {
             TagEnd::Strikethrough => {
                 self.strikethrough = false;
             }
+            TagEnd::Table => {
+                self.render_table();
+                self.in_table = false;
+            }
+            TagEnd::TableHead => {
+                self.in_table_head = false;
+                if !self.current_row.is_empty() {
+                    self.table_rows.push(std::mem::take(&mut self.current_row));
+                }
+            }
+            TagEnd::TableRow => {
+                if !self.current_row.is_empty() {
+                    self.table_rows.push(std::mem::take(&mut self.current_row));
+                }
+            }
+            TagEnd::TableCell => {
+                self.current_row.push(std::mem::take(&mut self.current_cell));
+            }
             _ => {}
         }
     }
@@ -216,6 +261,12 @@ impl<'a> MarkdownRenderer<'a> {
     fn handle_text(&mut self, text: &str) {
         if self.in_code_block {
             self.code_block_content.push_str(text);
+            return;
+        }
+        
+        // If we're in a table cell, accumulate text there
+        if self.in_table {
+            self.current_cell.push_str(text);
             return;
         }
         
@@ -277,6 +328,75 @@ impl<'a> MarkdownRenderer<'a> {
                     )
                     .wrap(),
                 );
+            });
+        
+        self.ui.add_space(4.0);
+    }
+    
+    fn render_table(&mut self) {
+        if self.table_rows.is_empty() {
+            return;
+        }
+        
+        let rows = std::mem::take(&mut self.table_rows);
+        let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+        
+        if num_cols == 0 {
+            return;
+        }
+        
+        let text_color = self.text_color;
+        let font_size = self.base_font_size;
+        let border_color = text_color.gamma_multiply(0.3);
+        let header_bg = text_color.gamma_multiply(0.1);
+        
+        egui::Frame::new()
+            .stroke(egui::Stroke::new(1.0, border_color))
+            .corner_radius(4.0)
+            .show(self.ui, |ui| {
+                egui::Grid::new("md_table")
+                    .num_columns(num_cols)
+                    .spacing([8.0, 4.0])
+                    .min_col_width(40.0)
+                    .show(ui, |ui| {
+                        for (row_idx, row) in rows.iter().enumerate() {
+                            let is_header = row_idx == 0;
+                            
+                            for (col_idx, cell) in row.iter().enumerate() {
+                                let cell_text = cell.trim();
+                                
+                                if is_header {
+                                    // Header row - bold with background
+                                    egui::Frame::new()
+                                        .fill(header_bg)
+                                        .inner_margin(egui::Margin::symmetric(6, 4))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                egui::RichText::new(cell_text)
+                                                    .size(font_size)
+                                                    .color(text_color)
+                                                    .strong(),
+                                            );
+                                        });
+                                } else {
+                                    // Regular cell
+                                    ui.add(egui::Label::new(
+                                        egui::RichText::new(cell_text)
+                                            .size(font_size)
+                                            .color(text_color),
+                                    ).wrap());
+                                }
+                                
+                                // Fill remaining columns if row is short
+                                if col_idx == row.len() - 1 {
+                                    for _ in row.len()..num_cols {
+                                        ui.label("");
+                                    }
+                                }
+                            }
+                            ui.end_row();
+                        }
+                    });
             });
         
         self.ui.add_space(4.0);

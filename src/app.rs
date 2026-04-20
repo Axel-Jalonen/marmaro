@@ -2280,6 +2280,32 @@ impl ChatApp {
                                         ui, segments, 14.0, 16.0, pal.text_primary,
                                     );
                                 }
+                                math_render::Block::HeadingWithMath { level, segments } => {
+                                    let heading_size = match level {
+                                        1 => 24.0,
+                                        2 => 20.0,
+                                        3 => 17.0,
+                                        _ => 15.0,
+                                    };
+                                    let math_heading_size = heading_size * 1.1;
+                                    ui.add_space(4.0);
+                                    math_render::render_inline_paragraph(
+                                        ui, segments, heading_size, math_heading_size, pal.text_primary,
+                                    );
+                                    ui.add_space(2.0);
+                                    // Separator line for h1/h2
+                                    if *level <= 2 {
+                                        let rect = ui.available_rect_before_wrap();
+                                        ui.painter().line_segment(
+                                            [
+                                                egui::pos2(rect.left(), rect.top()),
+                                                egui::pos2(rect.right(), rect.top()),
+                                            ],
+                                            egui::Stroke::new(1.0, pal.border_strong),
+                                        );
+                                        ui.add_space(4.0);
+                                    }
+                                }
                                 math_render::Block::Markdown(text) => {
                                     if text.trim().is_empty() {
                                         continue;

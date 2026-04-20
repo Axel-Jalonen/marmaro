@@ -586,6 +586,9 @@ pub enum Block {
     /// A paragraph that contains inline math mixed with text.
     /// Rendered in a single horizontal flow.
     InlineMathParagraph(Vec<Segment>),
+    /// A heading that contains inline math.
+    /// `level` is 1-6 (from # to ######).
+    HeadingWithMath { level: u8, segments: Vec<Segment> },
     /// Plain markdown text with no inline math.
     /// Rendered via CommonMarkViewer for full markdown support.
     Markdown(String),
@@ -695,6 +698,25 @@ fn flush_paragraph(blocks: &mut Vec<Block>, para: &mut Vec<Segment>) {
         }
     } else {
         // Has inline math - check if the text parts have block-level markdown
+        let first_text = para
+            .iter()
+            .find_map(|s| if let Segment::Text(t) = s { Some(t.as_str()) } else { None })
+            .unwrap_or("");
+        let trimmed = first_text.trim_start();
+
+        // Check if this is a heading with math
+        if trimmed.starts_with('#') {
+            let level = trimmed.chars().take_while(|&c| c == '#').count().min(6) as u8;
+            // Strip the heading prefix from the first text segment
+            let mut segments: Vec<Segment> = para.drain(..).collect();
+            if let Some(Segment::Text(ref mut t)) = segments.first_mut() {
+                let hash_end = t.find(|c: char| c != '#').unwrap_or(t.len());
+                *t = t[hash_end..].trim_start().to_string();
+            }
+            blocks.push(Block::HeadingWithMath { level, segments });
+            return;
+        }
+
         let text_parts: String = para
             .iter()
             .filter_map(|s| {
@@ -707,10 +729,8 @@ fn flush_paragraph(blocks: &mut Vec<Block>, para: &mut Vec<Segment>) {
             .collect();
 
         if has_block_markdown(&text_parts) {
-            // Block markdown present - can't do inline flow.
-            // Render each piece separately: text as markdown, math inline.
-            // This is a compromise - the math won't flow inline with
-            // markdown block elements, but at least headings/tables render.
+            // Block markdown present (tables, HRs, etc.) - can't do inline flow.
+            // Render each piece separately.
             for seg in para.drain(..) {
                 match seg {
                     Segment::Text(t) if !t.trim().is_empty() => {

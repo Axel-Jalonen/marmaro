@@ -255,6 +255,35 @@ fn preprocess_latex(tex: &str) -> String {
         result = new_result;
     }
     
+    // \underbrace{X}_{label} -> X (strip brace, keep content, drop label)
+    // \overbrace{X}^{label} -> X
+    for cmd in &["\\underbrace", "\\overbrace"] {
+        while let Some(start) = result.find(cmd) {
+            let brace_start = start + cmd.len();
+            if result[brace_start..].starts_with('{') {
+                if let Some(end) = find_matching_brace(&result[brace_start + 1..]) {
+                    let content = result[brace_start + 1..brace_start + 1 + end].to_string();
+                    let after = &result[brace_start + 1 + end + 1..];
+                    // Skip optional _{ } or ^{ } label
+                    let after = after.trim_start();
+                    let after = if after.starts_with("_{") || after.starts_with("^{") {
+                        let label_start = 2; // skip _{ or ^{
+                        if let Some(label_end) = find_matching_brace(&after[label_start..]) {
+                            &after[label_start + label_end + 1..]
+                        } else {
+                            after
+                        }
+                    } else {
+                        after
+                    };
+                    result = format!("{}{}{}", &result[..start], content, after);
+                    continue;
+                }
+            }
+            break;
+        }
+    }
+    
     result
 }
 

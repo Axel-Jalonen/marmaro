@@ -9,6 +9,7 @@ use tracing::{error, info, warn};
 use crate::bedrock::{self, StreamToken};
 use crate::db::Database;
 use crate::math_render;
+use crate::md_render;
 use crate::message::{ChatMessage, Conversation, Role, TokenUsage, MODELS, REGIONS};
 
 // ── Theme-aware color palette ──────────────────────────────────────────
@@ -1581,15 +1582,20 @@ impl ChatApp {
                                         renaming_id = None;
                                     }
                                 } else {
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(&title)
-                                                .color(tc)
-                                                .size(13.0)
-                                                .italics(),
-                                        )
-                                        .selectable(false),
-                                    );
+                                    // Render title with math support if it contains $
+                                    if math_render::contains_math(&title) {
+                                        math_render::render_inline_math_line(ui, &title, 13.0, tc);
+                                    } else {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(&title)
+                                                    .color(tc)
+                                                    .size(13.0)
+                                                    .italics(),
+                                            )
+                                            .selectable(false),
+                                        );
+                                    }
                                 }
                                 if let Some(ref txt) = expiry_text {
                                     ui.colored_label(
@@ -1748,12 +1754,17 @@ impl ChatApp {
                                     renaming_id = None;
                                 }
                             } else {
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&title).color(tc).size(13.0),
-                                    )
-                                    .selectable(false),
-                                );
+                                // Render title with math support if it contains $
+                                if math_render::contains_math(&title) {
+                                    math_render::render_inline_math_line(ui, &title, 13.0, tc);
+                                } else {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&title).color(tc).size(13.0),
+                                        )
+                                        .selectable(false),
+                                    );
+                                }
                             }
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -2250,94 +2261,8 @@ impl ChatApp {
                     let has_math = math_render::contains_math(&content);
 
                     if has_math && !is_streaming {
-                        let mid = self.messages[idx].id.clone();
-                        let v = self.messages[idx].version;
-
-                        // Split content into blocks on \n\n boundaries,
-                        // then render each block appropriately.
-                        let blocks = math_render::split_into_blocks(&content);
-                        for (blk_i, block) in blocks.iter().enumerate() {
-                            match block {
-                                math_render::Block::DisplayMath(tex) => {
-                                    ui.add_space(4.0);
-                                    ui.horizontal(|ui| {
-                                        let math_font_size = 20.0;
-                                        if math_render::render_math_ui(
-                                            ui, tex, math_font_size, pal.text_primary, true,
-                                        )
-                                        .is_none()
-                                        {
-                                            ui.colored_label(
-                                                pal.text_secondary,
-                                                format!("$${}$$", tex),
-                                            );
-                                        }
-                                    });
-                                    ui.add_space(4.0);
-                                }
-                                math_render::Block::InlineMathParagraph(segments) => {
-                                    math_render::render_inline_paragraph(
-                                        ui, segments, 14.0, 16.0, pal.text_primary,
-                                    );
-                                }
-                                math_render::Block::HeadingWithMath { level, segments } => {
-                                    let heading_size = match level {
-                                        1 => 24.0,
-                                        2 => 20.0,
-                                        3 => 17.0,
-                                        _ => 15.0,
-                                    };
-                                    let math_heading_size = heading_size * 1.1;
-                                    ui.add_space(4.0);
-                                    math_render::render_inline_paragraph(
-                                        ui, segments, heading_size, math_heading_size, pal.text_primary,
-                                    );
-                                    ui.add_space(2.0);
-                                    // Separator line for h1/h2
-                                    if *level <= 2 {
-                                        let rect = ui.available_rect_before_wrap();
-                                        ui.painter().line_segment(
-                                            [
-                                                egui::pos2(rect.left(), rect.top()),
-                                                egui::pos2(rect.right(), rect.top()),
-                                            ],
-                                            egui::Stroke::new(1.0, pal.border_strong),
-                                        );
-                                        ui.add_space(4.0);
-                                    }
-                                }
-                                math_render::Block::ListItemWithMath { segments } => {
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(8.0);
-                                        ui.label(
-                                            egui::RichText::new("•")
-                                                .size(14.0)
-                                                .color(pal.text_primary),
-                                        );
-                                        ui.add_space(4.0);
-                                        ui.vertical(|ui| {
-                                            math_render::render_inline_paragraph(
-                                                ui, segments, 14.0, 16.0, pal.text_primary,
-                                            );
-                                        });
-                                    });
-                                }
-                                math_render::Block::Markdown(text) => {
-                                    if text.trim().is_empty() {
-                                        continue;
-                                    }
-                                    let cache_key = format!("{}_{}", mid, blk_i);
-                                    let e = self
-                                        .md_caches
-                                        .entry(cache_key)
-                                        .or_insert_with(|| (v, CommonMarkCache::default()));
-                                    if e.0 != v {
-                                        *e = (v, CommonMarkCache::default());
-                                    }
-                                    CommonMarkViewer::new().show(ui, &mut e.1, text);
-                                }
-                            }
-                        }
+                        // Use the unified markdown + math renderer
+                        md_render::render_markdown(ui, &content, 14.0, pal.text_primary);
                     } else if is_streaming {
                         CommonMarkViewer::new().show(ui, &mut self.streaming_md_cache, &content);
                     } else {

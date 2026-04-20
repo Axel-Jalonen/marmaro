@@ -20,3 +20,4 @@ arboard = "3"
 rand = "0.8"
 rex = { git = "https://github.com/Axel-Jalonen/rex-retex-patched", branch = "main" }
 security-framework = "2"
+pulldown-cmark = "0.10"

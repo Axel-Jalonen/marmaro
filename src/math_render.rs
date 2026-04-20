@@ -261,6 +261,209 @@ pub fn render_math_ui(
     Some(egui::vec2(canvas_w, canvas_h))
 }
 
+/// Render a single line of text with inline math (no wrapping).
+/// Useful for sidebar titles and other compact displays.
+/// Returns the total width of the rendered content.
+pub fn render_inline_math_line(
+    ui: &mut egui::Ui,
+    text: &str,
+    font_size: f32,
+    color: egui::Color32,
+) -> f32 {
+    // Parse the text for $...$ inline math
+    let segments = parse_simple_inline_math(text);
+    
+    // Calculate total width and max height
+    let mut total_width = 0.0f32;
+    let mut max_height = font_size * 1.2;
+    
+    // Pre-compute sizes
+    struct MeasuredPart {
+        is_math: bool,
+        content: String,
+        width: f32,
+        height: f32,
+        commands: Option<Vec<DrawCmd>>,
+    }
+    
+    let mut parts: Vec<MeasuredPart> = Vec::new();
+    
+    for (is_math, content) in &segments {
+        if *is_math {
+            if let Some((commands, w, h)) = layout_math(content, font_size, false) {
+                total_width += w;
+                max_height = max_height.max(h);
+                parts.push(MeasuredPart {
+                    is_math: true,
+                    content: content.clone(),
+                    width: w,
+                    height: h,
+                    commands: Some(commands),
+                });
+            } else {
+                // Fallback: render as text with $ delimiters
+                let fallback = format!("${}$", content);
+                let galley = ui.painter().layout_no_wrap(
+                    fallback.clone(),
+                    egui::FontId::proportional(font_size),
+                    color,
+                );
+                total_width += galley.size().x;
+                parts.push(MeasuredPart {
+                    is_math: false,
+                    content: fallback,
+                    width: galley.size().x,
+                    height: galley.size().y,
+                    commands: None,
+                });
+            }
+        } else {
+            let galley = ui.painter().layout_no_wrap(
+                content.clone(),
+                egui::FontId::proportional(font_size),
+                color,
+            );
+            total_width += galley.size().x;
+            parts.push(MeasuredPart {
+                is_math: false,
+                content: content.clone(),
+                width: galley.size().x,
+                height: galley.size().y,
+                commands: None,
+            });
+        }
+    }
+    
+    // Allocate space and render
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(total_width, max_height),
+        egui::Sense::hover(),
+    );
+    
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter_at(rect);
+        let mut x = rect.left();
+        let baseline_y = rect.top() + font_size;
+        
+        for part in &parts {
+            if part.is_math {
+                if let Some(ref commands) = part.commands {
+                    // Center math vertically
+                    let math_y = rect.top() + (max_height - part.height) / 2.0;
+                    paint_math_commands(&painter, commands, egui::pos2(x, math_y), font_size, color);
+                }
+            } else {
+                let galley = painter.layout_no_wrap(
+                    part.content.clone(),
+                    egui::FontId::proportional(font_size),
+                    color,
+                );
+                let text_y = baseline_y - galley.size().y * 0.8;
+                painter.galley(egui::pos2(x, text_y), galley, color);
+            }
+            x += part.width;
+        }
+    }
+    
+    total_width
+}
+
+/// Parse text for inline math, collapsing all delimiter types to inline.
+/// Handles: $...$, $$...$$, \(...\) - all rendered as inline math.
+/// Used for chat titles where we want compact single-line rendering.
+fn parse_simple_inline_math(text: &str) -> Vec<(bool, String)> {
+    let mut result = Vec::new();
+    let mut remaining = text;
+    
+    while !remaining.is_empty() {
+        // Find the earliest math delimiter
+        let dollar_pos = remaining.find('$');
+        let paren_pos = remaining.find("\\(");
+        
+        let (delim_type, start_pos) = match (dollar_pos, paren_pos) {
+            (Some(d), Some(p)) => if d <= p { ("dollar", d) } else { ("paren", p) },
+            (Some(d), None) => ("dollar", d),
+            (None, Some(p)) => ("paren", p),
+            (None, None) => {
+                // No more math
+                if !remaining.is_empty() {
+                    result.push((false, remaining.to_string()));
+                }
+                break;
+            }
+        };
+        
+        // Add text before the delimiter
+        if start_pos > 0 {
+            result.push((false, remaining[..start_pos].to_string()));
+        }
+        
+        if delim_type == "paren" {
+            // \(...\) format
+            remaining = &remaining[start_pos + 2..]; // skip \(
+            
+            if let Some(end_idx) = remaining.find("\\)") {
+                let math = remaining[..end_idx].trim();
+                if !math.is_empty() {
+                    result.push((true, math.to_string()));
+                }
+                remaining = &remaining[end_idx + 2..]; // skip \)
+            } else {
+                // No closing \), treat as literal
+                result.push((false, "\\(".to_string()));
+            }
+        } else {
+            // $ or $$ format
+            remaining = &remaining[start_pos + 1..]; // skip first $
+            
+            // Check for $$ (display math - but we'll render as inline for titles)
+            let is_display = remaining.starts_with('$');
+            if is_display {
+                remaining = &remaining[1..]; // skip second $
+            }
+            
+            if is_display {
+                // For $$, find closing $$
+                if let Some(end_idx) = remaining.find("$$") {
+                    let math = remaining[..end_idx].trim();
+                    if !math.is_empty() {
+                        result.push((true, math.to_string()));
+                    }
+                    remaining = &remaining[end_idx + 2..];
+                } else {
+                    // No closing $$, treat as literal
+                    result.push((false, "$$".to_string()));
+                }
+            } else {
+                // For single $, find closing $ (not crossing newline)
+                let mut end = None;
+                for (i, c) in remaining.char_indices() {
+                    if c == '$' {
+                        end = Some(i);
+                        break;
+                    }
+                    if c == '\n' {
+                        break;
+                    }
+                }
+                
+                if let Some(end_idx) = end {
+                    let math = remaining[..end_idx].trim();
+                    if !math.is_empty() {
+                        result.push((true, math.to_string()));
+                    }
+                    remaining = &remaining[end_idx + 1..];
+                } else {
+                    // No closing $, treat as literal
+                    result.push((false, "$".to_string()));
+                }
+            }
+        }
+    }
+    
+    result
+}
+
 /// Render a paragraph with inline math using manual word-wrapping.
 ///
 /// We measure each word and math expression, place them left-to-right,
@@ -286,7 +489,7 @@ pub fn render_inline_paragraph(
 
     // Break segments into "tokens" - individual words and math expressions
     enum Token {
-        Word(String),
+        Word { text: String, bold: bool, italic: bool, code: bool, strikethrough: bool },
         Math { tex: String, commands: Vec<DrawCmd>, width: f32, height: f32 },
         MathFallback(String),
         Space,
@@ -303,7 +506,30 @@ pub fn render_inline_paragraph(
                         tokens.push(Token::Space);
                     }
                     if !word.is_empty() {
-                        tokens.push(Token::Word(word.to_string()));
+                        tokens.push(Token::Word {
+                            text: word.to_string(),
+                            bold: false,
+                            italic: false,
+                            code: false,
+                            strikethrough: false,
+                        });
+                    }
+                }
+            }
+            Segment::StyledText { text, bold, italic, code, strikethrough } => {
+                let text = text.replace('\n', " ");
+                for (i, word) in text.split(' ').enumerate() {
+                    if i > 0 {
+                        tokens.push(Token::Space);
+                    }
+                    if !word.is_empty() {
+                        tokens.push(Token::Word {
+                            text: word.to_string(),
+                            bold: *bold,
+                            italic: *italic,
+                            code: *code,
+                            strikethrough: *strikethrough,
+                        });
                     }
                 }
             }
@@ -324,18 +550,18 @@ pub fn render_inline_paragraph(
     }
 
     // Measure each token's width
-    struct Measured {
-        width: f32,
-        token_idx: usize,
-    }
-
     let mut measured: Vec<f32> = Vec::with_capacity(tokens.len());
     for token in &tokens {
         let w = match token {
-            Token::Word(word) => {
+            Token::Word { text, code, .. } => {
+                let font = if *code {
+                    egui::FontId::monospace(text_size)
+                } else {
+                    egui::FontId::proportional(text_size)
+                };
                 let galley = ui.painter().layout_no_wrap(
-                    word.clone(),
-                    egui::FontId::proportional(text_size),
+                    text.clone(),
+                    font,
                     color,
                 );
                 galley.size().x
@@ -407,14 +633,65 @@ pub fn render_inline_paragraph(
         for &token_idx in &line.tokens {
             let token = &tokens[token_idx];
             match token {
-                Token::Word(word) => {
-                    let galley = painter.layout_no_wrap(
-                        word.clone(),
-                        egui::FontId::proportional(text_size),
+                Token::Word { text, bold, italic, code, strikethrough } => {
+                    // Build the appropriate font
+                    let font = if *code {
+                        egui::FontId::monospace(text_size)
+                    } else {
+                        egui::FontId::proportional(text_size)
+                    };
+                    
+                    // Create a LayoutJob for styled text
+                    let mut job = egui::text::LayoutJob::default();
+                    let mut text_format = egui::TextFormat {
+                        font_id: font,
                         color,
-                    );
+                        ..Default::default()
+                    };
+                    
+                    // Apply strikethrough
+                    if *strikethrough {
+                        text_format.strikethrough = egui::Stroke::new(1.0, color);
+                    }
+                    
+                    // Apply code background
+                    if *code {
+                        text_format.background = color.gamma_multiply(0.1);
+                    }
+                    
+                    job.append(text, 0.0, text_format);
+                    
+                    let galley = painter.layout_job(job);
                     let text_y = baseline_y - galley.size().y * 0.8;
+                    
+                    // For bold/italic we need to simulate since egui doesn't have real bold/italic
+                    // We'll draw the text, and for bold draw it again slightly offset
                     painter.galley(egui::pos2(x, text_y), galley.clone(), color);
+                    
+                    if *bold {
+                        // Fake bold by drawing again with slight offset
+                        let mut bold_job = egui::text::LayoutJob::default();
+                        let font = if *code {
+                            egui::FontId::monospace(text_size)
+                        } else {
+                            egui::FontId::proportional(text_size)
+                        };
+                        let text_format = egui::TextFormat {
+                            font_id: font,
+                            color,
+                            ..Default::default()
+                        };
+                        bold_job.append(text, 0.0, text_format);
+                        let bold_galley = painter.layout_job(bold_job);
+                        painter.galley(egui::pos2(x + 0.5, text_y), bold_galley, color);
+                    }
+                    
+                    if *italic {
+                        // For italic, we can't easily do a transform, so we'll rely on the 
+                        // text having visual distinction in other ways, or just note it
+                        // egui doesn't support text shear transforms easily
+                    }
+                    
                     x += galley.size().x;
                 }
                 Token::Math { commands, width, height, .. } => {
@@ -448,6 +725,14 @@ pub fn render_inline_paragraph(
 pub enum Segment {
     /// Regular markdown text.
     Text(String),
+    /// Styled text with formatting flags.
+    StyledText {
+        text: String,
+        bold: bool,
+        italic: bool,
+        code: bool,
+        strikethrough: bool,
+    },
     /// Inline math (was delimited by `$...$`).
     InlineMath(String),
     /// Display math (was delimited by `$$...$$`).
@@ -572,8 +857,9 @@ pub fn parse_math_segments(input: &str) -> Vec<Segment> {
 }
 
 /// Returns true if the content contains any math delimiters.
+/// Checks for: $, \(, \)
 pub fn contains_math(content: &str) -> bool {
-    content.contains('$')
+    content.contains('$') || content.contains("\\(") || content.contains("\\)")
 }
 
 // ── Block-level splitting ───────────────────────────────────────────────

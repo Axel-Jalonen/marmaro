@@ -3,6 +3,7 @@ mod bedrock;
 mod db;
 mod keychain;
 mod math_render;
+mod md_render;
 mod message;
 
 use eframe::egui;

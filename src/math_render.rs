@@ -157,8 +157,12 @@ pub fn render_math_ui(
 ) -> Option<egui::Vec2> {
     let renderer = EguiRenderer::new(font_size as u16);
     let mut commands = Vec::new();
-    if renderer.render_to(&mut commands, tex).is_err() {
-        return None;
+    match renderer.render_to(&mut commands, tex) {
+        Ok(()) => {}
+        Err(e) => {
+            tracing::warn!("ReX parse error for {:?}: {}", tex, e);
+            return None;
+        }
     }
 
     // Extract canvas size from sentinel at end

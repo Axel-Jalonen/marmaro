@@ -1592,7 +1592,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1733,7 +1733,7 @@ dependencies = [
 [[package]]
 name = "font_types"
 version = "0.1.0"
-source = "git+https://github.com/Axel-Jalonen/rex-retex-patched?branch=main#99fa7103b7db59d5c112a2b9cf13086f55f05af2"
+source = "git+https://github.com/Axel-Jalonen/rex-retex-patched?branch=main#bf616dce07a7cd874da73f0c92d74db1db227480"
 dependencies = [
  "serde",
  "serde_derive",
@@ -2502,7 +2502,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2871,7 +2871,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3786,7 +3786,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "rex"
 version = "0.2.0"
-source = "git+https://github.com/Axel-Jalonen/rex-retex-patched?branch=main#99fa7103b7db59d5c112a2b9cf13086f55f05af2"
+source = "git+https://github.com/Axel-Jalonen/rex-retex-patched?branch=main#bf616dce07a7cd874da73f0c92d74db1db227480"
 dependencies = [
  "env_logger",
  "font_types",
@@ -3879,7 +3879,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4300,7 +4300,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4339,7 +4339,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "stix2"
 version = "0.1.0"
-source = "git+https://github.com/Axel-Jalonen/rex-retex-patched?branch=main#99fa7103b7db59d5c112a2b9cf13086f55f05af2"
+source = "git+https://github.com/Axel-Jalonen/rex-retex-patched?branch=main#bf616dce07a7cd874da73f0c92d74db1db227480"
 dependencies = [
  "font_types",
  "fp",
@@ -4389,7 +4389,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4739,7 +4739,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5356,7 +5356,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

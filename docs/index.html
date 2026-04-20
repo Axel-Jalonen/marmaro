@@ -7,12 +7,14 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.0/github-markdown.min.css">
     <style>
         :root {
-            --bg: #0d1117;
-            --fg: #e6edf3;
-            --accent: #58a6ff;
-            --muted: #8b949e;
-            --border: #30363d;
-            --card: #161b22;
+            color-scheme: light dark;
+            --bg: light-dark(#ffffff, #0d1117);
+            --fg: light-dark(#1f2328, #e6edf3);
+            --muted: light-dark(#656d76, #8b949e);
+            --border: light-dark(#d0d7de, #30363d);
+            --card: light-dark(#f6f8fa, #161b22);
+            --accent: light-dark(#0969da, #58a6ff);
+            --accent-bg: light-dark(#ddf4ff, #1f3a5f);
         }
         
         * {
@@ -29,37 +31,35 @@
         }
         
         .container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             padding: 40px 20px;
         }
         
         header {
             text-align: center;
-            padding: 60px 0;
+            padding: 40px 0;
         }
         
         h1 {
-            font-size: 3rem;
-            margin-bottom: 10px;
-            background: linear-gradient(135deg, var(--accent), #a371f7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            font-size: 2.5rem;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--fg);
         }
         
         .tagline {
-            font-size: 1.25rem;
+            font-size: 1.15rem;
             color: var(--muted);
-            margin-bottom: 30px;
+            margin-bottom: 24px;
         }
         
         .badges {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             justify-content: center;
             flex-wrap: wrap;
-            margin-bottom: 30px;
+            margin-bottom: 24px;
         }
         
         .badges img {
@@ -69,80 +69,89 @@
         .cta {
             display: inline-block;
             background: var(--accent);
-            color: var(--bg);
-            padding: 14px 28px;
-            border-radius: 8px;
+            color: #ffffff;
+            padding: 12px 24px;
+            border-radius: 6px;
             text-decoration: none;
-            font-weight: 600;
-            font-size: 1.1rem;
-            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 500;
+            font-size: 1rem;
+            transition: opacity 0.2s;
         }
         
         .cta:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(88, 166, 255, 0.3);
+            opacity: 0.9;
         }
         
         .warning {
-            background: rgba(255, 123, 114, 0.1);
-            border: 1px solid rgba(255, 123, 114, 0.3);
+            background: light-dark(#fff8e1, rgba(255, 180, 0, 0.08));
+            border: 1px solid light-dark(#ffd54f, rgba(255, 180, 0, 0.25));
             border-radius: 8px;
-            padding: 16px 20px;
-            margin: 30px auto;
+            padding: 14px 18px;
+            margin: 24px auto;
             max-width: 600px;
-            font-size: 0.9rem;
-            color: #ffb4a9;
+            font-size: 0.875rem;
+            color: var(--fg);
+            text-align: left;
         }
         
         .warning strong {
-            color: #ff7b72;
+            color: light-dark(#b45309, #ffb74d);
+        }
+        
+        .screenshot {
+            margin: 32px auto;
+            max-width: 700px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: var(--card);
+        }
+        
+        .screenshot img {
+            width: 100%;
+            display: block;
         }
         
         section {
-            margin: 50px 0;
+            margin: 48px 0;
         }
         
         h2 {
-            font-size: 1.75rem;
-            margin-bottom: 20px;
+            font-size: 1.5rem;
+            margin-bottom: 16px;
             color: var(--fg);
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 10px;
+            font-weight: 600;
         }
         
         .features {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
         }
         
         .feature {
             background: var(--card);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            transition: border-color 0.2s;
-        }
-        
-        .feature:hover {
-            border-color: var(--accent);
+            border-radius: 8px;
+            padding: 20px;
         }
         
         .feature h3 {
-            font-size: 1.1rem;
-            margin-bottom: 8px;
-            color: var(--accent);
+            font-size: 1rem;
+            margin-bottom: 6px;
+            color: var(--fg);
+            font-weight: 600;
         }
         
         .feature p {
             color: var(--muted);
-            font-size: 0.95rem;
+            font-size: 0.9rem;
         }
         
         .shortcuts {
             background: var(--card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 8px;
             overflow: hidden;
         }
         
@@ -152,15 +161,16 @@
         }
         
         .shortcuts th, .shortcuts td {
-            padding: 12px 20px;
+            padding: 10px 16px;
             text-align: left;
             border-bottom: 1px solid var(--border);
         }
         
         .shortcuts th {
-            background: rgba(88, 166, 255, 0.1);
+            background: var(--accent-bg);
             color: var(--accent);
             font-weight: 600;
+            font-size: 0.875rem;
         }
         
         .shortcuts tr:last-child td {
@@ -171,30 +181,38 @@
             background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 4px;
-            padding: 2px 8px;
+            padding: 2px 6px;
             font-family: inherit;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
         
         .code-block {
             background: var(--card);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
+            border-radius: 8px;
+            padding: 16px;
             overflow-x: auto;
         }
         
         .code-block code {
             color: var(--fg);
             font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .build-note {
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 0.875rem;
         }
         
         footer {
             text-align: center;
-            padding: 40px 0;
+            padding: 32px 0;
             color: var(--muted);
             border-top: 1px solid var(--border);
-            margin-top: 60px;
+            margin-top: 48px;
+            font-size: 0.9rem;
         }
         
         footer a {
@@ -207,57 +225,61 @@
     <div class="container">
         <header>
             <h1>Bedrock Chat</h1>
-            <p class="tagline">Native macOS chat client for AWS Bedrock</p>
+            <p class="tagline">Native macOS client for AWS Bedrock</p>
             <div class="badges">
                 <img src="https://github.com/Axel-Jalonen/bedrock-chat/actions/workflows/rust.yml/badge.svg" alt="Build">
                 <img src="https://img.shields.io/github/v/release/Axel-Jalonen/bedrock-chat?label=download" alt="Release">
             </div>
             <a href="https://github.com/Axel-Jalonen/bedrock-chat/releases/latest" class="cta">Download for macOS</a>
             <div class="warning">
-                <strong>Alpha Release</strong> — This is early software. Expect bugs, missing features, and breaking changes. Generated by an LLM, not audited, not signed, not notarized. API keys stored in plaintext.
+                <strong>Alpha.</strong> Early software — expect bugs. Not audited, not signed, not notarized. API keys stored in plaintext.
             </div>
         </header>
+
+        <div class="screenshot">
+            <img src="public/screenshot.png" alt="Bedrock Chat screenshot">
+        </div>
 
         <section>
             <h2>Features</h2>
             <div class="features">
                 <div class="feature">
                     <h3>64+ Models</h3>
-                    <p>Claude, Llama, DeepSeek, Mistral, Qwen, Nova, and more from 16 providers</p>
+                    <p>Claude, Llama, DeepSeek, Mistral, Qwen, Nova from 16 providers</p>
                 </div>
                 <div class="feature">
-                    <h3>Streaming Responses</h3>
+                    <h3>Streaming</h3>
                     <p>Real-time token streaming with usage display</p>
                 </div>
                 <div class="feature">
-                    <h3>Markdown Rendering</h3>
-                    <p>Rich text with code blocks and syntax highlighting</p>
+                    <h3>Markdown</h3>
+                    <p>Rich text with syntax highlighting</p>
                 </div>
                 <div class="feature">
-                    <h3>Full-Text Search</h3>
-                    <p>Search all your chats with Cmd+K</p>
+                    <h3>Search</h3>
+                    <p>Full-text search with Cmd+K</p>
                 </div>
                 <div class="feature">
                     <h3>System Prompts</h3>
-                    <p>Custom system prompts per conversation</p>
+                    <p>Custom prompts per conversation</p>
                 </div>
                 <div class="feature">
                     <h3>Ephemeral Mode</h3>
-                    <p>Chat without saving anything to disk</p>
+                    <p>Chat without saving to disk</p>
                 </div>
                 <div class="feature">
-                    <h3>Context Compaction</h3>
+                    <h3>Compaction</h3>
                     <p>Summarize history to save tokens</p>
                 </div>
                 <div class="feature">
                     <h3>Smart Scroll</h3>
-                    <p>Read while streaming without being interrupted</p>
+                    <p>Read while streaming uninterrupted</p>
                 </div>
             </div>
         </section>
 
         <section>
-            <h2>Keyboard Shortcuts</h2>
+            <h2>Shortcuts</h2>
             <div class="shortcuts">
                 <table>
                     <tr><th>Key</th><th>Action</th></tr>
@@ -266,21 +288,20 @@
                     <tr><td><kbd>Cmd</kbd> + <kbd>K</kbd></td><td>Search chats</td></tr>
                     <tr><td><kbd>Esc</kbd></td><td>Close modal</td></tr>
                     <tr><td><kbd>Esc</kbd> <kbd>Esc</kbd></td><td>Interrupt generation</td></tr>
-                    <tr><td><kbd>Arrow keys</kbd></td><td>Navigate lists</td></tr>
                 </table>
             </div>
         </section>
 
         <section>
-            <h2>Build from Source</h2>
+            <h2>Build</h2>
             <div class="code-block">
                 <code>cargo run --release</code>
             </div>
-            <p style="margin-top: 12px; color: var(--muted);">Requires Rust 1.75+ and macOS</p>
+            <p class="build-note">Requires Rust 1.75+ and macOS</p>
         </section>
 
         <footer>
-            <a href="https://github.com/Axel-Jalonen/bedrock-chat">GitHub</a> · Built with Rust + egui
+            <a href="https://github.com/Axel-Jalonen/bedrock-chat">GitHub</a>
         </footer>
     </div>
 </body>

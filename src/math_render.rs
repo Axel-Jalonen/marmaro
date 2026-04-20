@@ -404,3 +404,161 @@ pub fn parse_math_segments(input: &str) -> Vec<Segment> {
 pub fn contains_math(content: &str) -> bool {
     content.contains('$')
 }
+
+// ── Block-level splitting ───────────────────────────────────────────────
+
+/// A block-level element in the rendered output.
+#[derive(Debug, Clone)]
+pub enum Block {
+    /// Display math ($$...$$), rendered centered on its own line.
+    DisplayMath(String),
+    /// A paragraph that contains inline math mixed with text.
+    /// Rendered in a single horizontal flow.
+    InlineMathParagraph(Vec<Segment>),
+    /// Plain markdown text with no inline math.
+    /// Rendered via CommonMarkViewer for full markdown support.
+    Markdown(String),
+}
+
+/// Returns true if text contains markdown block-level syntax that
+/// CommonMarkViewer should handle (headings, tables, HRs, lists, code fences).
+fn has_block_markdown(text: &str) -> bool {
+    text.lines().any(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with('#')
+            || trimmed.starts_with("---")
+            || trimmed.starts_with("***")
+            || trimmed.starts_with("___")
+            || trimmed.starts_with('|')
+            || trimmed.starts_with("```")
+            || trimmed.starts_with("- ")
+            || trimmed.starts_with("* ")
+            || trimmed.starts_with("> ")
+            || (trimmed.len() > 2
+                && trimmed.as_bytes()[0].is_ascii_digit()
+                && trimmed.contains(". "))
+    })
+}
+
+/// Split message content into blocks for rendering.
+///
+/// The strategy:
+/// 1. Parse into segments (Text, InlineMath, DisplayMath)
+/// 2. Group consecutive Text+InlineMath segments
+/// 3. Within each group, split on \n\n to form paragraphs
+/// 4. For each paragraph, if it has inline math AND no block-level markdown,
+///    emit InlineMathParagraph; otherwise emit Markdown
+/// 5. DisplayMath segments become their own blocks
+pub fn split_into_blocks(content: &str) -> Vec<Block> {
+    let segments = parse_math_segments(content);
+    let mut blocks = Vec::new();
+
+    // Walk segments, grouping Text+InlineMath runs
+    let mut i = 0;
+    while i < segments.len() {
+        match &segments[i] {
+            Segment::DisplayMath(tex) => {
+                blocks.push(Block::DisplayMath(tex.clone()));
+                i += 1;
+            }
+            _ => {
+                // Collect a run of Text + InlineMath
+                let run_start = i;
+                while i < segments.len()
+                    && !matches!(&segments[i], Segment::DisplayMath(_))
+                {
+                    i += 1;
+                }
+                let run = &segments[run_start..i];
+
+                // Now split this run into paragraphs on \n\n boundaries.
+                // We need to break Text segments at \n\n.
+                let mut current_para: Vec<Segment> = Vec::new();
+
+                for seg in run {
+                    match seg {
+                        Segment::InlineMath(tex) => {
+                            current_para.push(Segment::InlineMath(tex.clone()));
+                        }
+                        Segment::Text(text) => {
+                            // Split on \n\n
+                            let parts: Vec<&str> = text.split("\n\n").collect();
+                            for (pi, part) in parts.iter().enumerate() {
+                                if pi > 0 {
+                                    // Paragraph break - flush current_para
+                                    flush_paragraph(&mut blocks, &mut current_para);
+                                }
+                                if !part.is_empty() {
+                                    current_para.push(Segment::Text(part.to_string()));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                flush_paragraph(&mut blocks, &mut current_para);
+            }
+        }
+    }
+
+    blocks
+}
+
+fn flush_paragraph(blocks: &mut Vec<Block>, para: &mut Vec<Segment>) {
+    if para.is_empty() {
+        return;
+    }
+
+    let has_math = para.iter().any(|s| matches!(s, Segment::InlineMath(_)));
+
+    if !has_math {
+        // Pure text - reassemble and emit as Markdown
+        let mut text = String::new();
+        for seg in para.iter() {
+            if let Segment::Text(t) = seg {
+                text.push_str(t);
+            }
+        }
+        if !text.trim().is_empty() {
+            blocks.push(Block::Markdown(text));
+        }
+    } else {
+        // Has inline math - check if the text parts have block-level markdown
+        let text_parts: String = para
+            .iter()
+            .filter_map(|s| {
+                if let Segment::Text(t) = s {
+                    Some(t.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if has_block_markdown(&text_parts) {
+            // Block markdown present - can't do inline flow.
+            // Render each piece separately: text as markdown, math inline.
+            // This is a compromise - the math won't flow inline with
+            // markdown block elements, but at least headings/tables render.
+            for seg in para.drain(..) {
+                match seg {
+                    Segment::Text(t) if !t.trim().is_empty() => {
+                        blocks.push(Block::Markdown(t));
+                    }
+                    Segment::InlineMath(tex) => {
+                        blocks.push(Block::InlineMathParagraph(vec![
+                            Segment::InlineMath(tex),
+                        ]));
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        // Simple paragraph with inline math - render as flow
+        blocks.push(Block::InlineMathParagraph(para.drain(..).collect()));
+    }
+
+    para.clear();
+}

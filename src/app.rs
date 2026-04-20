@@ -2250,24 +2250,20 @@ impl ChatApp {
                     let has_math = math_render::contains_math(&content);
 
                     if has_math && !is_streaming {
-                        // Parse into text/math segments and render each
-                        let segments = math_render::parse_math_segments(&content);
                         let mid = self.messages[idx].id.clone();
                         let v = self.messages[idx].version;
 
-                        // Group segments into "paragraphs" for inline flow.
-                        // A paragraph break occurs at DisplayMath or when a Text
-                        // segment contains a double-newline (\n\n).
-                        let mut seg_idx = 0;
-                        while seg_idx < segments.len() {
-                            match &segments[seg_idx] {
-                                math_render::Segment::DisplayMath(tex) => {
+                        // Split content into blocks on \n\n boundaries,
+                        // then render each block appropriately.
+                        let blocks = math_render::split_into_blocks(&content);
+                        for (blk_i, block) in blocks.iter().enumerate() {
+                            match block {
+                                math_render::Block::DisplayMath(tex) => {
                                     ui.add_space(4.0);
                                     ui.horizontal(|ui| {
                                         let math_font_size = 20.0;
-                                        let text_color = pal.text_primary;
                                         if math_render::render_math_ui(
-                                            ui, tex, math_font_size, text_color, true,
+                                            ui, tex, math_font_size, pal.text_primary, true,
                                         )
                                         .is_none()
                                         {
@@ -2278,32 +2274,53 @@ impl ChatApp {
                                         }
                                     });
                                     ui.add_space(4.0);
-                                    seg_idx += 1;
                                 }
-                                _ => {
-                                    // Collect consecutive Text/InlineMath segments
-                                    // that form a paragraph (split on \n\n within text).
-                                    // Render as inline flow.
-                                    let para_start = seg_idx;
-                                    while seg_idx < segments.len() {
-                                        match &segments[seg_idx] {
-                                            math_render::Segment::DisplayMath(_) => break,
-                                            math_render::Segment::Text(t) => {
-                                                // If this text contains a paragraph break AND
-                                                // is not the first segment in this paragraph,
-                                                // we'll handle the split inside the flow.
-                                                seg_idx += 1;
-                                            }
-                                            math_render::Segment::InlineMath(_) => {
-                                                seg_idx += 1;
+                                math_render::Block::InlineMathParagraph(segments) => {
+                                    // Render text + inline math in a single flow
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 0.0;
+                                        for seg in segments {
+                                            match seg {
+                                                math_render::Segment::Text(text) => {
+                                                    let text = text.replace('\n', " ");
+                                                    if !text.is_empty() {
+                                                        ui.label(
+                                                            egui::RichText::new(&text)
+                                                                .size(14.0)
+                                                                .color(pal.text_primary),
+                                                        );
+                                                    }
+                                                }
+                                                math_render::Segment::InlineMath(tex) => {
+                                                    if math_render::render_math_ui(
+                                                        ui, tex, 16.0, pal.text_primary, false,
+                                                    )
+                                                    .is_none()
+                                                    {
+                                                        ui.colored_label(
+                                                            pal.text_secondary,
+                                                            format!("${}$", tex),
+                                                        );
+                                                    }
+                                                }
+                                                _ => {}
                                             }
                                         }
+                                    });
+                                }
+                                math_render::Block::Markdown(text) => {
+                                    if text.trim().is_empty() {
+                                        continue;
                                     }
-                                    // Render para_start..seg_idx as inline flow
-                                    let para_segments = &segments[para_start..seg_idx];
-                                    self.render_inline_paragraph(
-                                        ui, para_segments, &mid, v, para_start, &pal,
-                                    );
+                                    let cache_key = format!("{}_{}", mid, blk_i);
+                                    let e = self
+                                        .md_caches
+                                        .entry(cache_key)
+                                        .or_insert_with(|| (v, CommonMarkCache::default()));
+                                    if e.0 != v {
+                                        *e = (v, CommonMarkCache::default());
+                                    }
+                                    CommonMarkViewer::new().show(ui, &mut e.1, text);
                                 }
                             }
                         }
@@ -2323,125 +2340,6 @@ impl ChatApp {
                     }
                 }
             });
-    }
-
-    /// Render a paragraph of mixed text and inline math as a flowing layout.
-    /// Text segments that contain \n\n are split into separate paragraphs.
-    fn render_inline_paragraph(
-        &mut self,
-        ui: &mut egui::Ui,
-        segments: &[math_render::Segment],
-        mid: &str,
-        version: u64,
-        seg_offset: usize,
-        pal: &Palette,
-    ) {
-        // Check if there's any inline math in this paragraph group.
-        // If not, just use CommonMarkViewer for proper markdown rendering.
-        let has_inline_math = segments.iter().any(|s| matches!(s, math_render::Segment::InlineMath(_)));
-
-        if !has_inline_math {
-            // Pure text - use CommonMarkViewer for markdown features (bold, code, links, etc.)
-            for (i, seg) in segments.iter().enumerate() {
-                if let math_render::Segment::Text(text) = seg {
-                    if text.trim().is_empty() {
-                        continue;
-                    }
-                    let cache_key = format!("{}_{}", mid, seg_offset + i);
-                    let e = self
-                        .md_caches
-                        .entry(cache_key)
-                        .or_insert_with(|| (version, CommonMarkCache::default()));
-                    if e.0 != version {
-                        *e = (version, CommonMarkCache::default());
-                    }
-                    CommonMarkViewer::new().show(ui, &mut e.1, text);
-                }
-            }
-            return;
-        }
-
-        // Mixed text + inline math: render in a horizontal_wrapped flow.
-        // Split on double-newlines to create paragraph breaks.
-        // Within each paragraph, text and math flow together.
-        let mut paragraph_pieces: Vec<&math_render::Segment> = Vec::new();
-
-        for seg in segments {
-            if let math_render::Segment::Text(text) = seg {
-                // Check for paragraph breaks (\n\n)
-                if text.contains("\n\n") {
-                    let parts: Vec<&str> = text.split("\n\n").collect();
-                    for (pi, part) in parts.iter().enumerate() {
-                        if pi > 0 {
-                            // Flush current paragraph
-                            if !paragraph_pieces.is_empty() {
-                                self.render_flow_paragraph(ui, &paragraph_pieces, pal);
-                                paragraph_pieces.clear();
-                            }
-                            ui.add_space(6.0);
-                        }
-                        if !part.trim().is_empty() {
-                            // Push as a temporary text segment
-                            paragraph_pieces.push(seg); // we'll handle sub-splitting below
-                        }
-                    }
-                    // The split approach above is imprecise with the borrow.
-                    // Simpler: just push the whole segment and let render_flow handle newlines.
-                    paragraph_pieces.clear();
-                    paragraph_pieces.push(seg);
-                } else {
-                    paragraph_pieces.push(seg);
-                }
-            } else {
-                paragraph_pieces.push(seg);
-            }
-        }
-
-        if !paragraph_pieces.is_empty() {
-            self.render_flow_paragraph(ui, &paragraph_pieces, pal);
-        }
-    }
-
-    /// Render pieces (Text + InlineMath) in a single horizontal_wrapped flow.
-    fn render_flow_paragraph(
-        &self,
-        ui: &mut egui::Ui,
-        pieces: &[&math_render::Segment],
-        pal: &Palette,
-    ) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            for piece in pieces {
-                match piece {
-                    math_render::Segment::Text(text) => {
-                        // Render text as a label, splitting on single newlines
-                        // to allow soft wrapping.
-                        let text = text.replace('\n', " ");
-                        if !text.trim().is_empty() {
-                            ui.label(
-                                egui::RichText::new(&text)
-                                    .size(14.0)
-                                    .color(pal.text_primary),
-                            );
-                        }
-                    }
-                    math_render::Segment::InlineMath(tex) => {
-                        let math_font_size = 16.0;
-                        if math_render::render_math_ui(
-                            ui, tex, math_font_size, pal.text_primary, false,
-                        )
-                        .is_none()
-                        {
-                            ui.colored_label(
-                                pal.text_secondary,
-                                format!("${}$", tex),
-                            );
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        });
     }
 
     fn render_input(&mut self, ui: &mut egui::Ui) {

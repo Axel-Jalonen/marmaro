@@ -1955,12 +1955,12 @@ impl ChatApp {
         }
 
         self.render_top_bar(ui);
+        // Delimiter line directly under the top bar
         let r = ui.available_rect_before_wrap();
         ui.painter().line_segment(
             [r.left_top(), egui::pos2(r.right(), r.top())],
             egui::Stroke::new(1.0, pal.border),
         );
-        ui.add_space(2.0);
 
         let input_h = 100.0;
         let avail = ui.available_height() - input_h;
@@ -1991,10 +1991,16 @@ impl ChatApp {
     fn render_top_bar(&mut self, ui: &mut egui::Ui) {
         let pal = self.pal.clone();
         let has_msgs = self.conv_has_messages();
+        
+        // Get the full width before rendering
+        let full_width = ui.available_width();
+        
         egui::Frame::new()
             .fill(pal.bg_topbar)
             .inner_margin(egui::Margin::symmetric(12, 8))
             .show(ui, |ui| {
+                // Force the frame content to take full width
+                ui.set_min_width(full_width - 24.0); // subtract margins
                 ui.horizontal(|ui| {
                     ui.colored_label(pal.text_secondary, "Model");
                     ui.add_space(2.0);

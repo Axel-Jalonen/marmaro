@@ -18,3 +18,4 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 arboard = "3"
 rand = "0.8"
+rex = { git = "https://github.com/Axel-Jalonen/rex-retex-patched", branch = "main" }

@@ -8,6 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::bedrock::{self, StreamToken};
 use crate::db::Database;
+use crate::math_render;
 use crate::message::{ChatMessage, Conversation, Role, TokenUsage, MODELS, REGIONS};
 
 // ── Theme-aware color palette ──────────────────────────────────────────
@@ -2227,7 +2228,78 @@ impl ChatApp {
                     ui.colored_label(pal.text_muted, "...");
                 } else if !empty {
                     let content = self.messages[idx].content.clone();
-                    if is_streaming {
+                    let has_math = math_render::contains_math(&content);
+
+                    if has_math && !is_streaming {
+                        // Parse into text/math segments and render each
+                        let segments = math_render::parse_math_segments(&content);
+                        let mid = self.messages[idx].id.clone();
+                        let v = self.messages[idx].version;
+
+                        for (seg_i, seg) in segments.iter().enumerate() {
+                            match seg {
+                                math_render::Segment::Text(text) => {
+                                    if text.trim().is_empty() {
+                                        continue;
+                                    }
+                                    let cache_key = format!("{}_{}", mid, seg_i);
+                                    let e = self
+                                        .md_caches
+                                        .entry(cache_key)
+                                        .or_insert_with(|| (v, CommonMarkCache::default()));
+                                    if e.0 != v {
+                                        *e = (v, CommonMarkCache::default());
+                                    }
+                                    CommonMarkViewer::new().show(ui, &mut e.1, text);
+                                }
+                                math_render::Segment::InlineMath(tex) => {
+                                    let math_font_size = 16.0;
+                                    let text_color = pal.text_primary;
+                                    ui.horizontal_wrapped(|ui| {
+                                        if math_render::render_math_ui(
+                                            ui,
+                                            tex,
+                                            math_font_size,
+                                            text_color,
+                                        )
+                                        .is_none()
+                                        {
+                                            // Fallback: show raw LaTeX on parse error
+                                            ui.colored_label(
+                                                pal.text_secondary,
+                                                format!("${}$", tex),
+                                            );
+                                        }
+                                    });
+                                }
+                                math_render::Segment::DisplayMath(tex) => {
+                                    ui.add_space(4.0);
+                                    ui.horizontal(|ui| {
+                                        // Center the display math
+                                        let _avail = ui.available_width();
+                                        let math_font_size = 20.0;
+                                        let text_color = pal.text_primary;
+                                        // Render once to get size, then center
+                                        if math_render::render_math_ui(
+                                            ui,
+                                            tex,
+                                            math_font_size,
+                                            text_color,
+                                        )
+                                        .is_none()
+                                        {
+                                            // Fallback: show raw LaTeX on parse error
+                                            ui.colored_label(
+                                                pal.text_secondary,
+                                                format!("$${}$$", tex),
+                                            );
+                                        }
+                                    });
+                                    ui.add_space(4.0);
+                                }
+                            }
+                        }
+                    } else if is_streaming {
                         CommonMarkViewer::new().show(ui, &mut self.streaming_md_cache, &content);
                     } else {
                         let mid = self.messages[idx].id.clone();
@@ -2345,6 +2417,7 @@ fn apply_visuals(ctx: &egui::Context, theme: egui::Theme, pal: &Palette) {
 }
 
 /// Load macOS San Francisco system font, falling back to egui defaults.
+/// Also loads the XITS Math font for LaTeX math rendering.
 fn load_system_font(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
@@ -2368,6 +2441,24 @@ fn load_system_font(ctx: &egui::Context) {
         if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
             family.insert(0, "sf_mono".to_owned());
         }
+    }
+
+    // XITS Math font for LaTeX rendering via ReX.
+    // Embedded at compile time so the binary is self-contained.
+    let xits_data = include_bytes!("../rex-xits.otf");
+    fonts.font_data.insert(
+        "xits_math".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(xits_data)),
+    );
+    // Register as a custom "Math" font family
+    fonts.families.insert(
+        egui::FontFamily::Name("Math".into()),
+        vec!["xits_math".to_owned()],
+    );
+    // Also add XITS as a fallback for Proportional so math symbols that appear
+    // in regular text (e.g. arrows, Greek letters) render instead of squares.
+    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        family.push("xits_math".to_owned());
     }
 
     ctx.set_fonts(fonts);

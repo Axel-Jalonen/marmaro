@@ -1,6 +1,7 @@
 mod app;
 mod bedrock;
 mod db;
+mod math_render;
 mod message;
 
 use eframe::egui;

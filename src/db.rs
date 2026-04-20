@@ -10,7 +10,7 @@ pub struct Database {
 }
 
 impl Database {
-    /// Open (or create) the database at ~/.config/bedrock-chat/history.db
+    /// Open (or create) the database at ~/.config/marmaro/history.db
     pub fn open() -> Result<Self> {
         let path = Self::db_path()?;
         if let Some(parent) = path.parent() {
@@ -54,7 +54,7 @@ impl Database {
         let home = std::env::var("HOME").context("HOME not set")?;
         Ok(PathBuf::from(home)
             .join(".config")
-            .join("bedrock-chat")
+            .join("marmaro")
             .join("history.db"))
     }
 

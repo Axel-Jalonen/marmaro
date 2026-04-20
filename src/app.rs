@@ -1152,7 +1152,7 @@ impl ChatApp {
                             egui::RichText::new(if is_settings {
                                 "Settings"
                             } else {
-                                "Bedrock Chat"
+                                "Marmaro"
                             })
                             .size(24.0)
                             .strong(),

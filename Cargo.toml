@@ -1,8 +1,8 @@
 [package]
-name = "bedrock-chat"
+name = "marmaro"
 version = "0.1.0"
 edition = "2021"
-description = "Minimal native desktop chat app for AWS Bedrock"
+description = "Native macOS chat client for AWS Bedrock"
 
 [dependencies]
 eframe = "0.34.1"

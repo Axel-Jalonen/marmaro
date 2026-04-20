@@ -24,14 +24,14 @@ fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Bedrock Chat")
+            .with_title("Marmaro")
             .with_inner_size([1100.0, 750.0])
             .with_min_inner_size([600.0, 400.0]),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Bedrock Chat",
+        "Marmaro",
         native_options,
         Box::new(move |cc| Ok(Box::new(app::ChatApp::new(cc, rt_handle)))),
     )

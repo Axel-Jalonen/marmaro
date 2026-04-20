@@ -5,7 +5,7 @@
 
 use security_framework::passwords::{delete_generic_password, get_generic_password, set_generic_password};
 
-const SERVICE: &str = "com.bedrock-chat.aws";
+const SERVICE: &str = "com.marmaro.aws";
 const ACCOUNT: &str = "api_key";
 
 /// Retrieve the stored API key from the macOS Keychain.

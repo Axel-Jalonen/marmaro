@@ -3,7 +3,9 @@
 //! Uses the Security.framework via the `security-framework` crate to store
 //! and retrieve the bearer token in the user's login keychain.
 
-use security_framework::passwords::{delete_generic_password, get_generic_password, set_generic_password};
+use security_framework::passwords::{
+    delete_generic_password, get_generic_password, set_generic_password,
+};
 
 const SERVICE: &str = "com.marmaro.aws";
 const ACCOUNT: &str = "api_key";
@@ -34,6 +36,5 @@ pub fn set_api_key(key: &str) -> Result<(), String> {
 /// Delete the stored API key from the macOS Keychain.
 #[allow(dead_code)]
 pub fn delete_api_key() -> Result<(), String> {
-    delete_generic_password(SERVICE, ACCOUNT)
-        .map_err(|e| format!("Keychain delete failed: {}", e))
+    delete_generic_password(SERVICE, ACCOUNT).map_err(|e| format!("Keychain delete failed: {}", e))
 }

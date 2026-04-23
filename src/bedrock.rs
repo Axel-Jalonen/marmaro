@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
+use aws_sdk_bedrockruntime::types::ConverseStreamOutput as StreamEvent;
 use aws_sdk_bedrockruntime::types::{
     ContentBlock, ContentBlockDelta, ConversationRole, InferenceConfiguration, Message,
     SystemContentBlock,
 };
-use aws_sdk_bedrockruntime::types::ConverseStreamOutput as StreamEvent;
 use eframe::egui;
 use tokio::sync::mpsc;
 use tracing::{error, info};
@@ -40,9 +40,7 @@ pub fn spawn_stream(
     let (tx, rx) = mpsc::unbounded_channel();
 
     rt.spawn(async move {
-        if let Err(e) =
-            run_stream(&tx, &ctx, &model_id, &region, &system_prompt, &history).await
-        {
+        if let Err(e) = run_stream(&tx, &ctx, &model_id, &region, &system_prompt, &history).await {
             error!("Bedrock stream error: {e:#}");
             let _ = tx.send(StreamToken::Error(format!("{e:#}")));
             ctx.request_repaint();
@@ -76,16 +74,17 @@ async fn run_stream(
         messages.push(msg);
     }
 
-    info!(model = model_id, region, messages = messages.len(), "starting converse_stream");
+    info!(
+        model = model_id,
+        region,
+        messages = messages.len(),
+        "starting converse_stream"
+    );
 
     let mut req = client
         .converse_stream()
         .model_id(model_id)
-        .inference_config(
-            InferenceConfiguration::builder()
-                .max_tokens(4096)
-                .build(),
-        );
+        .inference_config(InferenceConfiguration::builder().max_tokens(4096).build());
 
     if !system_prompt.is_empty() {
         req = req.system(SystemContentBlock::Text(system_prompt.to_string()));

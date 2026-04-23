@@ -4,12 +4,17 @@
 //! each element using egui primitives. Math ($...$, $$...$$) is detected in
 //! text nodes and rendered via the math_render module.
 
-use eframe::egui;
-use pulldown_cmark::{Event, Parser, Tag, TagEnd, CodeBlockKind, HeadingLevel};
 use crate::math_render;
+use eframe::egui;
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 
 /// Render markdown content with math support into the given Ui.
-pub fn render_markdown(ui: &mut egui::Ui, content: &str, base_font_size: f32, text_color: egui::Color32) {
+pub fn render_markdown(
+    ui: &mut egui::Ui,
+    content: &str,
+    base_font_size: f32,
+    text_color: egui::Color32,
+) {
     let mut renderer = MarkdownRenderer::new(ui, base_font_size, text_color);
     renderer.render(content);
 }
@@ -18,35 +23,35 @@ struct MarkdownRenderer<'a> {
     ui: &'a mut egui::Ui,
     base_font_size: f32,
     text_color: egui::Color32,
-    
+
     // Style stack
     bold: bool,
     italic: bool,
     code: bool,
     strikethrough: bool,
-    
+
     // Current heading level (0 = not in heading)
     heading_level: u8,
-    
+
     // List state
     list_depth: usize,
     ordered_list_index: Option<u64>,
-    
+
     // Blockquote depth
     blockquote_depth: usize,
-    
+
     // Code block state
     in_code_block: bool,
     code_block_content: String,
     code_block_lang: Option<String>,
-    
+
     // Table state
     in_table: bool,
     in_table_head: bool,
     table_rows: Vec<Vec<String>>,
     current_row: Vec<String>,
     current_cell: String,
-    
+
     // Accumulated text for the current paragraph/inline context
     // We accumulate text and render it all at once to handle math properly
     pending_text: Vec<TextSpan>,
@@ -86,14 +91,14 @@ impl<'a> MarkdownRenderer<'a> {
             pending_text: Vec::new(),
         }
     }
-    
+
     fn render(&mut self, content: &str) {
         // Pre-process: protect math from markdown parsing
         // Replace $...$ with placeholders, parse, then restore
         let (processed, math_blocks) = protect_math(content);
-        
+
         let parser = Parser::new(&processed);
-        
+
         for event in parser {
             match event {
                 Event::Start(tag) => self.start_tag(tag),
@@ -110,11 +115,11 @@ impl<'a> MarkdownRenderer<'a> {
                 _ => {}
             }
         }
-        
+
         // Flush any remaining text
         self.flush_text();
     }
-    
+
     fn start_tag(&mut self, tag: Tag) {
         match tag {
             Tag::Paragraph => {
@@ -183,7 +188,7 @@ impl<'a> MarkdownRenderer<'a> {
             _ => {}
         }
     }
-    
+
     fn end_tag(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
@@ -252,24 +257,25 @@ impl<'a> MarkdownRenderer<'a> {
                 }
             }
             TagEnd::TableCell => {
-                self.current_row.push(std::mem::take(&mut self.current_cell));
+                self.current_row
+                    .push(std::mem::take(&mut self.current_cell));
             }
             _ => {}
         }
     }
-    
+
     fn handle_text(&mut self, text: &str) {
         if self.in_code_block {
             self.code_block_content.push_str(text);
             return;
         }
-        
+
         // If we're in a table cell, accumulate text there
         if self.in_table {
             self.current_cell.push_str(text);
             return;
         }
-        
+
         self.pending_text.push(TextSpan {
             text: text.to_string(),
             bold: self.bold,
@@ -278,7 +284,7 @@ impl<'a> MarkdownRenderer<'a> {
             strikethrough: self.strikethrough,
         });
     }
-    
+
     fn handle_inline_code(&mut self, code: &str) {
         self.pending_text.push(TextSpan {
             text: code.to_string(),
@@ -288,7 +294,7 @@ impl<'a> MarkdownRenderer<'a> {
             strikethrough: self.strikethrough,
         });
     }
-    
+
     fn handle_soft_break(&mut self) {
         // Soft break = space in markdown
         self.pending_text.push(TextSpan {
@@ -299,21 +305,21 @@ impl<'a> MarkdownRenderer<'a> {
             strikethrough: self.strikethrough,
         });
     }
-    
+
     fn handle_hard_break(&mut self) {
         self.flush_text();
     }
-    
+
     fn handle_rule(&mut self) {
         self.flush_text();
         self.ui.add_space(4.0);
         self.ui.separator();
         self.ui.add_space(4.0);
     }
-    
+
     fn render_code_block(&mut self) {
         let code = std::mem::take(&mut self.code_block_content);
-        
+
         egui::Frame::new()
             .fill(self.text_color.gamma_multiply(0.1))
             .inner_margin(8.0)
@@ -329,27 +335,27 @@ impl<'a> MarkdownRenderer<'a> {
                     .wrap(),
                 );
             });
-        
+
         self.ui.add_space(4.0);
     }
-    
+
     fn render_table(&mut self) {
         if self.table_rows.is_empty() {
             return;
         }
-        
+
         let rows = std::mem::take(&mut self.table_rows);
         let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
-        
+
         if num_cols == 0 {
             return;
         }
-        
+
         let text_color = self.text_color;
         let font_size = self.base_font_size;
         let border_color = text_color.gamma_multiply(0.3);
         let header_bg = text_color.gamma_multiply(0.1);
-        
+
         egui::Frame::new()
             .stroke(egui::Stroke::new(1.0, border_color))
             .corner_radius(4.0)
@@ -361,10 +367,10 @@ impl<'a> MarkdownRenderer<'a> {
                     .show(ui, |ui| {
                         for (row_idx, row) in rows.iter().enumerate() {
                             let is_header = row_idx == 0;
-                            
+
                             for (col_idx, cell) in row.iter().enumerate() {
                                 let cell_text = cell.trim();
-                                
+
                                 if is_header {
                                     // Header row - bold with background
                                     egui::Frame::new()
@@ -380,13 +386,16 @@ impl<'a> MarkdownRenderer<'a> {
                                         });
                                 } else {
                                     // Regular cell
-                                    ui.add(egui::Label::new(
-                                        egui::RichText::new(cell_text)
-                                            .size(font_size)
-                                            .color(text_color),
-                                    ).wrap());
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(cell_text)
+                                                .size(font_size)
+                                                .color(text_color),
+                                        )
+                                        .wrap(),
+                                    );
                                 }
-                                
+
                                 // Fill remaining columns if row is short
                                 if col_idx == row.len() - 1 {
                                     for _ in row.len()..num_cols {
@@ -398,17 +407,17 @@ impl<'a> MarkdownRenderer<'a> {
                         }
                     });
             });
-        
+
         self.ui.add_space(4.0);
     }
-    
+
     fn flush_text(&mut self) {
         if self.pending_text.is_empty() {
             return;
         }
-        
+
         let spans = std::mem::take(&mut self.pending_text);
-        
+
         // Determine font size based on context
         let font_size = if self.heading_level > 0 {
             match self.heading_level {
@@ -420,18 +429,18 @@ impl<'a> MarkdownRenderer<'a> {
         } else {
             self.base_font_size
         };
-        
+
         // Render list bullet/number if applicable
         if self.list_depth > 0 {
             let indent = (self.list_depth - 1) as f32 * 16.0 + 8.0;
             self.ui.add_space(indent);
-            
+
             let marker = if let Some(idx) = self.ordered_list_index {
                 format!("{}.", idx)
             } else {
                 "•".to_string()
             };
-            
+
             self.ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(marker)
@@ -439,7 +448,7 @@ impl<'a> MarkdownRenderer<'a> {
                         .color(self.text_color),
                 );
                 ui.add_space(4.0);
-                
+
                 // Render the content in a vertical container
                 ui.vertical(|ui| {
                     render_spans_with_math(ui, &spans, font_size, self.text_color);
@@ -447,7 +456,7 @@ impl<'a> MarkdownRenderer<'a> {
             });
             return;
         }
-        
+
         // Render blockquote if applicable
         if self.blockquote_depth > 0 {
             let indent = self.blockquote_depth as f32 * 8.0;
@@ -461,14 +470,19 @@ impl<'a> MarkdownRenderer<'a> {
                     egui::Stroke::new(2.0, self.text_color.gamma_multiply(0.3)),
                 );
                 ui.add_space(8.0);
-                
+
                 ui.vertical(|ui| {
-                    render_spans_with_math(ui, &spans, font_size, self.text_color.gamma_multiply(0.8));
+                    render_spans_with_math(
+                        ui,
+                        &spans,
+                        font_size,
+                        self.text_color.gamma_multiply(0.8),
+                    );
                 });
             });
             return;
         }
-        
+
         // Regular paragraph
         render_spans_with_math(self.ui, &spans, font_size, self.text_color);
     }
@@ -484,18 +498,24 @@ fn render_spans_with_math(
     // Collect all text with styles, then split into segments (text vs math)
     #[derive(Clone)]
     enum Segment {
-        StyledText { text: String, bold: bool, italic: bool, code: bool, strikethrough: bool },
+        StyledText {
+            text: String,
+            bold: bool,
+            italic: bool,
+            code: bool,
+            strikethrough: bool,
+        },
         InlineMath(String),
         DisplayMath(String),
     }
-    
+
     let mut segments: Vec<Segment> = Vec::new();
-    
+
     for span in spans {
         // Check for math in this span
         let text = &span.text;
         let mut remaining = text.as_str();
-        
+
         while !remaining.is_empty() {
             // Look for $$ first (display math)
             if let Some(start) = remaining.find("$$") {
@@ -510,7 +530,7 @@ fn render_spans_with_math(
                     });
                 }
                 remaining = &remaining[start + 2..];
-                
+
                 // Find closing $$
                 if let Some(end) = remaining.find("$$") {
                     segments.push(Segment::DisplayMath(remaining[..end].to_string()));
@@ -539,7 +559,7 @@ fn render_spans_with_math(
                     });
                 }
                 remaining = &remaining[start + 1..];
-                
+
                 // Find closing $ (not $$, and not crossing newline)
                 let mut end = None;
                 for (i, c) in remaining.char_indices() {
@@ -551,7 +571,7 @@ fn render_spans_with_math(
                         break;
                     }
                 }
-                
+
                 if let Some(end_idx) = end {
                     let math = remaining[..end_idx].trim();
                     if !math.is_empty() {
@@ -584,37 +604,59 @@ fn render_spans_with_math(
             }
         }
     }
-    
+
     // Check if we have any math - if not, just render text simply
-    let has_math = segments.iter().any(|s| matches!(s, Segment::InlineMath(_) | Segment::DisplayMath(_)));
-    
+    let has_math = segments
+        .iter()
+        .any(|s| matches!(s, Segment::InlineMath(_) | Segment::DisplayMath(_)));
+
     if !has_math {
         // Simple case: no math, just render styled text
         ui.horizontal_wrapped(|ui| {
             for seg in &segments {
-                if let Segment::StyledText { text, bold, italic, code, strikethrough } = seg {
+                if let Segment::StyledText {
+                    text,
+                    bold,
+                    italic,
+                    code,
+                    strikethrough,
+                } = seg
+                {
                     let mut rt = egui::RichText::new(text).size(font_size).color(text_color);
-                    if *bold { rt = rt.strong(); }
-                    if *italic { rt = rt.italics(); }
+                    if *bold {
+                        rt = rt.strong();
+                    }
+                    if *italic {
+                        rt = rt.italics();
+                    }
                     if *code {
-                        rt = rt.family(egui::FontFamily::Monospace)
+                        rt = rt
+                            .family(egui::FontFamily::Monospace)
                             .background_color(text_color.gamma_multiply(0.1));
                     }
-                    if *strikethrough { rt = rt.strikethrough(); }
+                    if *strikethrough {
+                        rt = rt.strikethrough();
+                    }
                     ui.label(rt);
                 }
             }
         });
         return;
     }
-    
+
     // Has math - need to use our manual word-wrap renderer
     // Convert segments to math_render::Segment format
     let mut math_segments: Vec<math_render::Segment> = Vec::new();
-    
+
     for seg in &segments {
         match seg {
-            Segment::StyledText { text, bold, italic, code, strikethrough } => {
+            Segment::StyledText {
+                text,
+                bold,
+                italic,
+                code,
+                strikethrough,
+            } => {
                 // Use the new StyledText segment variant to preserve formatting
                 math_segments.push(math_render::Segment::StyledText {
                     text: text.clone(),
@@ -631,12 +673,20 @@ fn render_spans_with_math(
                 // Flush inline content first
                 if !math_segments.is_empty() {
                     let segs = std::mem::take(&mut math_segments);
-                    math_render::render_inline_paragraph(ui, &segs, font_size, font_size * 1.1, text_color);
+                    math_render::render_inline_paragraph(
+                        ui,
+                        &segs,
+                        font_size,
+                        font_size * 1.1,
+                        text_color,
+                    );
                 }
                 // Render display math
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    if math_render::render_math_ui(ui, tex, font_size * 1.3, text_color, true).is_none() {
+                    if math_render::render_math_ui(ui, tex, font_size * 1.3, text_color, true)
+                        .is_none()
+                    {
                         ui.label(
                             egui::RichText::new(format!("$${}$$", tex))
                                 .size(font_size)
@@ -648,10 +698,16 @@ fn render_spans_with_math(
             }
         }
     }
-    
+
     // Flush remaining inline content
     if !math_segments.is_empty() {
-        math_render::render_inline_paragraph(ui, &math_segments, font_size, font_size * 1.1, text_color);
+        math_render::render_inline_paragraph(
+            ui,
+            &math_segments,
+            font_size,
+            font_size * 1.1,
+            text_color,
+        );
     }
 }
 
@@ -663,7 +719,7 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
     let mut blocks: Vec<(String, String)> = Vec::new();
     let mut remaining = content;
     let mut counter = 0;
-    
+
     while !remaining.is_empty() {
         // Find the earliest math delimiter
         let double_dollar = remaining.find("$$");
@@ -672,10 +728,10 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
             double_dollar != Some(pos)
         });
         let paren_open = remaining.find("\\(");
-        
+
         // Find which comes first
         let mut earliest: Option<(&str, usize)> = None;
-        
+
         if let Some(pos) = double_dollar {
             earliest = Some(("$$", pos));
         }
@@ -689,7 +745,7 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
                 earliest = Some(("\\(", pos));
             }
         }
-        
+
         match earliest {
             None => {
                 // No more math
@@ -699,7 +755,7 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
             Some(("$$", start)) => {
                 result.push_str(&remaining[..start]);
                 remaining = &remaining[start + 2..];
-                
+
                 if let Some(end) = remaining.find("$$") {
                     let math = &remaining[..end];
                     let placeholder = format!("\u{FFFC}MATH{}D\u{FFFC}", counter);
@@ -714,7 +770,7 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
             Some(("$", start)) => {
                 result.push_str(&remaining[..start]);
                 remaining = &remaining[start + 1..];
-                
+
                 // Find closing $ (not on newline, not $$)
                 let mut end = None;
                 for (i, c) in remaining.char_indices() {
@@ -726,7 +782,7 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
                         break;
                     }
                 }
-                
+
                 if let Some(end_idx) = end {
                     let math = &remaining[..end_idx];
                     if !math.trim().is_empty() {
@@ -746,7 +802,7 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
             Some(("\\(", start)) => {
                 result.push_str(&remaining[..start]);
                 remaining = &remaining[start + 2..]; // skip \(
-                
+
                 if let Some(end) = remaining.find("\\)") {
                     let math = &remaining[..end];
                     if !math.trim().is_empty() {
@@ -768,7 +824,7 @@ fn protect_math(content: &str) -> (String, Vec<(String, String)>) {
             }
         }
     }
-    
+
     (result, blocks)
 }
 

@@ -289,7 +289,8 @@ impl ChatApp {
         let conversations = db.list_conversations().unwrap_or_default();
         // Try keychain first (single read), fall back to plaintext DB for migration
         let keychain_key = crate::keychain::get_api_key();
-        let saved_key = keychain_key.clone()
+        let saved_key = keychain_key
+            .clone()
             .or_else(|| db.get_config("api_key").ok().flatten());
         let saved_region = db
             .get_config("region")
@@ -1161,13 +1162,9 @@ impl ChatApp {
                     ui.horizontal(|ui| {
                         ui.colored_label(
                             pal.text_primary,
-                            egui::RichText::new(if is_settings {
-                                "Settings"
-                            } else {
-                                "Marmaro"
-                            })
-                            .size(24.0)
-                            .strong(),
+                            egui::RichText::new(if is_settings { "Settings" } else { "Marmaro" })
+                                .size(24.0)
+                                .strong(),
                         );
                         if is_settings {
                             ui.with_layout(
@@ -1394,7 +1391,7 @@ impl ChatApp {
         let pal = self.pal.clone();
         ui.painter().rect_filled(ui.max_rect(), 0.0, pal.bg_sidebar);
         ui.add_space(8.0);
-        
+
         let button_height = 28.0;
         let icon_color = pal.text_muted;
 
@@ -1404,17 +1401,22 @@ impl ChatApp {
                 pal.text_primary,
                 egui::RichText::new("Chats").size(16.0).strong(),
             );
-            
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(8.0);
 
                 // --- Search Button ---
-                let search_btn = egui::Button::new(egui::RichText::new("/").size(14.0).color(icon_color))
-                    .fill(egui::Color32::TRANSPARENT)
-                    .corner_radius(6.0)
-                    .min_size(egui::vec2(button_height, button_height));
+                let search_btn =
+                    egui::Button::new(egui::RichText::new("/").size(14.0).color(icon_color))
+                        .fill(egui::Color32::TRANSPARENT)
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(button_height, button_height));
 
-                if ui.add(search_btn).on_hover_text("Search chats (Cmd+K)").clicked() {
+                if ui
+                    .add(search_btn)
+                    .on_hover_text("Search chats (Cmd+K)")
+                    .clicked()
+                {
                     self.show_search = true;
                     self.search_just_opened = true;
                     self.search_query.clear();
@@ -1424,20 +1426,39 @@ impl ChatApp {
                 }
 
                 // --- Ephemeral Button ---
-                let eph_label = if self.ephemeral { "Eph" } else if self.ephemeral_id.is_some() { "eph" } else { "Eph" };
-                let eph_color = if self.ephemeral { pal.accent } else if self.ephemeral_id.is_some() { pal.accent_dim } else { icon_color };
-                let eph_fill = if self.ephemeral { pal.selected } else { egui::Color32::TRANSPARENT };
+                let eph_label = if self.ephemeral {
+                    "Eph"
+                } else if self.ephemeral_id.is_some() {
+                    "eph"
+                } else {
+                    "Eph"
+                };
+                let eph_color = if self.ephemeral {
+                    pal.accent
+                } else if self.ephemeral_id.is_some() {
+                    pal.accent_dim
+                } else {
+                    icon_color
+                };
+                let eph_fill = if self.ephemeral {
+                    pal.selected
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
 
-                let eph_btn = egui::Button::new(egui::RichText::new(eph_label).size(11.0).color(eph_color))
-                    .fill(eph_fill)
-                    .corner_radius(6.0)
-                    .min_size(egui::vec2(button_height, button_height));
+                let eph_btn =
+                    egui::Button::new(egui::RichText::new(eph_label).size(11.0).color(eph_color))
+                        .fill(eph_fill)
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(button_height, button_height));
 
-                let eph_res = ui.add(eph_btn).on_hover_text(match (&self.ephemeral_id, self.ephemeral) {
-                    (Some(_), true) => "Already in ephemeral chat",
-                    (Some(_), false) => "Resume ephemeral chat",
-                    (None, _) => "New ephemeral chat",
-                });
+                let eph_res =
+                    ui.add(eph_btn)
+                        .on_hover_text(match (&self.ephemeral_id, self.ephemeral) {
+                            (Some(_), true) => "Already in ephemeral chat",
+                            (Some(_), false) => "Resume ephemeral chat",
+                            (None, _) => "New ephemeral chat",
+                        });
 
                 if eph_res.clicked() {
                     if let Some(eph_id) = self.ephemeral_id.clone() {
@@ -1457,13 +1478,14 @@ impl ChatApp {
                 }
 
                 // --- New Chat Button ---
-                let new_btn_ctrl = egui::Button::new(egui::RichText::new("+").size(18.0).color(pal.accent))
-                    .fill(egui::Color32::TRANSPARENT)
-                    .corner_radius(6.0)
-                    .min_size(egui::vec2(button_height, button_height));
+                let new_btn_ctrl =
+                    egui::Button::new(egui::RichText::new("+").size(18.0).color(pal.accent))
+                        .fill(egui::Color32::TRANSPARENT)
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(button_height, button_height));
 
                 let new_btn_res = ui.add(new_btn_ctrl).on_hover_text("New chat");
-                
+
                 if new_btn_res.clicked() {
                     let active_is_empty_regular = self.active_id.is_some()
                         && self.messages.is_empty()
@@ -1482,10 +1504,11 @@ impl ChatApp {
                 }
 
                 // --- Settings Button ---
-                let settings_btn = egui::Button::new(egui::RichText::new("Settings").size(12.0).color(icon_color))
-                    .fill(egui::Color32::TRANSPARENT)
-                    .corner_radius(6.0)
-                    .min_size(egui::vec2(button_height, button_height));
+                let settings_btn =
+                    egui::Button::new(egui::RichText::new("Settings").size(12.0).color(icon_color))
+                        .fill(egui::Color32::TRANSPARENT)
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(button_height, button_height));
 
                 if ui.add(settings_btn).clicked() {
                     self.delete_all_confirming = false;
@@ -1891,7 +1914,7 @@ impl ChatApp {
         let pal = self.pal.clone();
         let full_rect = ui.max_rect();
         ui.painter().rect_filled(full_rect, 0.0, pal.bg_base);
-        
+
         // Remove default spacing at the top
         ui.spacing_mut().item_spacing.y = 0.0;
 
@@ -2009,10 +2032,10 @@ impl ChatApp {
     fn render_top_bar(&mut self, ui: &mut egui::Ui) {
         let pal = self.pal.clone();
         let has_msgs = self.conv_has_messages();
-        
+
         // Get the full width before rendering
         let full_width = ui.available_width();
-        
+
         egui::Frame::new()
             .fill(pal.bg_topbar)
             .inner_margin(egui::Margin::symmetric(12, 8))
@@ -2072,7 +2095,11 @@ impl ChatApp {
                     let has_sys_prompt = !sys_prompt.is_empty();
                     let sp_label = if has_sys_prompt && !self.show_system_prompt {
                         let preview: String = sys_prompt.chars().take(20).collect();
-                        if sys_prompt.len() > 20 { format!("Sys: {}...", preview) } else { format!("Sys: {}", preview) }
+                        if sys_prompt.len() > 20 {
+                            format!("Sys: {}...", preview)
+                        } else {
+                            format!("Sys: {}", preview)
+                        }
                     } else {
                         "System Prompt".to_string()
                     };
@@ -2343,7 +2370,12 @@ impl ChatApp {
 
         egui::Frame::new()
             .fill(pal.bg_base)
-            .inner_margin(egui::Margin { left: side_pad as i8, right: side_pad as i8, top: 6, bottom: 8 })
+            .inner_margin(egui::Margin {
+                left: side_pad as i8,
+                right: side_pad as i8,
+                top: 6,
+                bottom: 8,
+            })
             .show(ui, |ui| {
                 egui::Frame::new()
                     .fill(pal.bg_input)
@@ -2358,34 +2390,45 @@ impl ChatApp {
                         let max_height = max_visible_rows as f32 * row_height;
                         let avail_w = ui.available_width();
 
-                        ui.horizontal(|ui| {
+                        ui.horizontal_top(|ui| {
                             let input_width = avail_w - 56.0;
 
-                            // Always use ScrollArea; it only actually scrolls when content exceeds max_height
-                            egui::ScrollArea::vertical()
-                                .max_height(max_height)
-                                .stick_to_bottom(true)
-                                .show(ui, |ui| {
-                                    ui.add_sized(
-                                        egui::vec2(input_width, 0.0),
-                                        egui::TextEdit::multiline(&mut self.input)
-                                            .hint_text(
-                                                egui::RichText::new("Message...").color(pal.text_muted),
-                                            )
-                                            .desired_rows(visible_rows)
-                                            .frame(egui::Frame::NONE)
-                                            .text_color(pal.text_primary),
-                                    );
-                                });
-
-                            // Enter sends, Shift+Enter for newline
+                            // Capture enter/shift state BEFORE TextEdit processes input
                             let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
                             let shift_held = ui.input(|i| i.modifiers.shift);
                             let should_send = enter_pressed && !shift_held;
 
-                            if should_send && self.input.ends_with('\n') {
-                                self.input.pop();
-                            }
+                            // Calculate the text height so scroll area knows the content size
+                            let font_id = egui::TextStyle::Body.resolve(ui.style());
+                            let row_height = ui.text_style_height(&egui::TextStyle::Body);
+                            let line_count = self.input.chars().filter(|&c| c == '\n').count() + 1;
+                            let desired_height = (line_count as f32 * row_height).max(row_height);
+                            // let scroll_height = desired_height.min(max_height);
+
+                            egui::ScrollArea::vertical()
+                                .max_height(max_height)
+                                .stick_to_bottom(true)
+                                .show(ui, |ui| {
+                                    let response = ui.add(
+                                        egui::TextEdit::multiline(&mut self.input)
+                                            .hint_text(
+                                                egui::RichText::new("Message...")
+                                                    .color(pal.text_muted),
+                                            )
+                                            .desired_width(input_width)
+                                            .desired_rows(1)
+                                            .frame(egui::Frame::NONE)
+                                            .text_color(pal.text_primary)
+                                            .lock_focus(true),
+                                    );
+
+                                    // If enter was pressed without shift, strip the newline that TextEdit just added
+                                    if should_send {
+                                        if self.input.ends_with('\n') {
+                                            self.input.pop();
+                                        }
+                                    }
+                                });
 
                             let can = !self.is_streaming
                                 && !self.is_compacting
@@ -2398,14 +2441,18 @@ impl ChatApp {
                                 pal.text_muted
                             };
 
-                            let clicked = ui.add(
-                                egui::Button::new(
-                                    egui::RichText::new("Send").color(text_color).size(13.0),
+                            ui.add_space(4.0);
+
+                            let clicked = ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Send").color(text_color).size(13.0),
+                                    )
+                                    .fill(bc)
+                                    .corner_radius(8.0)
+                                    .min_size(egui::vec2(48.0, 28.0)),
                                 )
-                                .fill(bc)
-                                .corner_radius(8.0)
-                                .min_size(egui::vec2(48.0, 28.0)),
-                            ).clicked();
+                                .clicked();
 
                             if (clicked || should_send) && can {
                                 let ctx = ui.ctx().clone();
@@ -2567,12 +2614,20 @@ impl eframe::App for ChatApp {
                 egui::Panel::left("sidebar")
                     .default_size(240.0)
                     .min_size(180.0)
-                    .frame(egui::Frame::new().fill(pal.bg_sidebar).inner_margin(egui::Margin::ZERO))
+                    .frame(
+                        egui::Frame::new()
+                            .fill(pal.bg_sidebar)
+                            .inner_margin(egui::Margin::ZERO),
+                    )
                     .show_inside(ui, |ui| {
                         self.render_sidebar(ui);
                     });
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::new().fill(pal.bg_base).inner_margin(egui::Margin::ZERO))
+                    .frame(
+                        egui::Frame::new()
+                            .fill(pal.bg_base)
+                            .inner_margin(egui::Margin::ZERO),
+                    )
                     .show_inside(ui, |ui| {
                         self.render_chat_pane(ui);
                     });

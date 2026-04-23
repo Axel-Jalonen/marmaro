@@ -1,3 +1,5 @@
 target/
 *.db
 .DS_Store
+Marmaro.app
+package.sh

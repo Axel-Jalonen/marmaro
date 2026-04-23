@@ -9,13 +9,13 @@
 //! parsing + layout only happens once per unique (tex, font_size, display)
 //! triple.  Subsequent frames just re-paint the cached draw commands.
 
-use std::collections::HashMap;
 use eframe::egui;
-use rex::layout::Style;
-use rex::render::{Cursor, RenderSettings, Renderer};
 use rex::dimensions::Float;
-use rex::parser::color::RGBA;
 use rex::fp::F24P8 as FontUnit;
+use rex::layout::Style;
+use rex::parser::color::RGBA;
+use rex::render::{Cursor, RenderSettings, Renderer};
+use std::collections::HashMap;
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -70,12 +70,8 @@ struct EguiRenderer {
 impl EguiRenderer {
     fn new(font_size: u16, display: bool) -> Self {
         let style = if display { Style::Display } else { Style::Text };
-        let settings = RenderSettings::default()
-            .font_size(font_size)
-            .style(style);
-        Self {
-            settings,
-        }
+        let settings = RenderSettings::default().font_size(font_size).style(style);
+        Self { settings }
     }
 }
 
@@ -174,11 +170,7 @@ impl Renderer for EguiRenderer {
 ///
 /// Results are cached globally so that repeated calls with the same
 /// (tex, font_size, display) triple are essentially free.
-pub fn layout_math(
-    tex: &str,
-    font_size: f32,
-    display: bool,
-) -> Option<(Vec<DrawCmd>, f32, f32)> {
+pub fn layout_math(tex: &str, font_size: f32, display: bool) -> Option<(Vec<DrawCmd>, f32, f32)> {
     // Preprocess to handle unsupported commands
     let tex = preprocess_latex(tex);
     let key: CacheKey = (tex.clone(), font_size as u16, display);
@@ -243,7 +235,7 @@ fn layout_math_uncached(
 /// Preprocess LaTeX to handle commands that ReX doesn't support.
 fn preprocess_latex(tex: &str) -> String {
     let mut result = tex.to_string();
-    
+
     // \boxed{...} -> just render the content (we lose the box, but at least it renders)
     // A proper fix would add box support to ReX
     while let Some(start) = result.find("\\boxed{") {
@@ -260,7 +252,7 @@ fn preprocess_latex(tex: &str) -> String {
             break;
         }
     }
-    
+
     // \cancel{...} -> just render the content
     while let Some(start) = result.find("\\cancel{") {
         let brace_start = start + 8;
@@ -276,7 +268,7 @@ fn preprocess_latex(tex: &str) -> String {
             break;
         }
     }
-    
+
     // \textcolor{color}{...} -> just render the content
     while let Some(start) = result.find("\\textcolor{") {
         let first_brace = start + 11;
@@ -299,7 +291,7 @@ fn preprocess_latex(tex: &str) -> String {
         }
         break;
     }
-    
+
     // \big, \Big, \bigg, \Bigg (and variants like \biggl, \biggr, \bigm etc.)
     // ReX has these but its expect_type is strict about atom types, so \big( fails.
     // Strip the size prefix and just keep the delimiter.
@@ -312,17 +304,18 @@ fn preprocess_latex(tex: &str) -> String {
             new_result.push_str(&remaining[..pos]);
             let after = &remaining[pos + prefix.len()..];
             // Skip optional suffix: l, r, m
-            let after = if after.starts_with('l') || after.starts_with('r') || after.starts_with('m') {
-                &after[1..]
-            } else {
-                after
-            };
+            let after =
+                if after.starts_with('l') || after.starts_with('r') || after.starts_with('m') {
+                    &after[1..]
+                } else {
+                    after
+                };
             remaining = after;
         }
         new_result.push_str(remaining);
         result = new_result;
     }
-    
+
     // \underbrace{X}_{label} -> X (strip brace, keep content, drop label)
     // \overbrace{X}^{label} -> X
     for cmd in &["\\underbrace", "\\overbrace"] {
@@ -351,11 +344,11 @@ fn preprocess_latex(tex: &str) -> String {
             break;
         }
     }
-    
+
     // \! (negative thin space) - causes assertion failure in ReX's fp.rs
     // Just strip it entirely since it's just a spacing adjustment
     result = result.replace("\\!", "");
-    
+
     result
 }
 
@@ -391,9 +384,14 @@ pub fn paint_math_commands(
     for cmd in commands {
         match cmd {
             DrawCmd::Glyph {
-                x, y, codepoint, scale,
+                x,
+                y,
+                codepoint,
+                scale,
             } => {
-                if *codepoint == 0 { continue; }
+                if *codepoint == 0 {
+                    continue;
+                }
                 let current_color = *color_stack.last().unwrap_or(&color);
                 if let Some(ch) = char::from_u32(*codepoint) {
                     let glyph_size = font_size * (*scale as f32);
@@ -404,13 +402,16 @@ pub fn paint_math_commands(
                         size: glyph_size,
                         family: egui::FontFamily::Name("Math".into()),
                     };
-                    let galley = painter.layout_no_wrap(
-                        ch.to_string(), math_font, current_color,
-                    );
+                    let galley = painter.layout_no_wrap(ch.to_string(), math_font, current_color);
                     painter.galley(draw_pos, galley, current_color);
                 }
             }
-            DrawCmd::Rule { x, y, width, height } => {
+            DrawCmd::Rule {
+                x,
+                y,
+                width,
+                height,
+            } => {
                 let current_color = *color_stack.last().unwrap_or(&color);
                 let rect = egui::Rect::from_min_size(
                     egui::pos2(origin.x + *x as f32, origin.y + *y as f32),
@@ -427,14 +428,22 @@ pub fn paint_math_commands(
                 color_stack.push(c);
             }
             DrawCmd::PopColor => {
-                if color_stack.len() > 1 { color_stack.pop(); }
+                if color_stack.len() > 1 {
+                    color_stack.pop();
+                }
             }
         }
     }
 }
 
 fn extract_canvas_size(commands: &mut Vec<DrawCmd>) -> (f32, f32) {
-    if let Some(DrawCmd::Glyph { x, y, codepoint: 0, scale }) = commands.last() {
+    if let Some(DrawCmd::Glyph {
+        x,
+        y,
+        codepoint: 0,
+        scale,
+    }) = commands.last()
+    {
         if *scale == 0.0 {
             let dims = (*x as f32, *y as f32);
             commands.pop();
@@ -457,10 +466,7 @@ pub fn render_math_ui(
 ) -> Option<egui::Vec2> {
     let (commands, canvas_w, canvas_h) = layout_math(tex, font_size, display)?;
 
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(canvas_w, canvas_h),
-        egui::Sense::hover(),
-    );
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(canvas_w, canvas_h), egui::Sense::hover());
 
     if ui.is_rect_visible(rect) {
         let painter = ui.painter_at(rect);
@@ -481,11 +487,11 @@ pub fn render_inline_math_line(
 ) -> f32 {
     // Parse the text for $...$ inline math
     let segments = parse_simple_inline_math(text);
-    
+
     // Calculate total width and max height
     let mut total_width = 0.0f32;
     let mut max_height = font_size * 1.2;
-    
+
     // Pre-compute sizes
     struct MeasuredPart {
         is_math: bool,
@@ -494,9 +500,9 @@ pub fn render_inline_math_line(
         height: f32,
         commands: Option<Vec<DrawCmd>>,
     }
-    
+
     let mut parts: Vec<MeasuredPart> = Vec::new();
-    
+
     for (is_math, content) in &segments {
         if *is_math {
             if let Some((commands, w, h)) = layout_math(content, font_size, false) {
@@ -542,24 +548,28 @@ pub fn render_inline_math_line(
             });
         }
     }
-    
+
     // Allocate space and render
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(total_width, max_height),
-        egui::Sense::hover(),
-    );
-    
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(total_width, max_height), egui::Sense::hover());
+
     if ui.is_rect_visible(rect) {
         let painter = ui.painter_at(rect);
         let mut x = rect.left();
         let baseline_y = rect.top() + font_size;
-        
+
         for part in &parts {
             if part.is_math {
                 if let Some(ref commands) = part.commands {
                     // Center math vertically
                     let math_y = rect.top() + (max_height - part.height) / 2.0;
-                    paint_math_commands(&painter, commands, egui::pos2(x, math_y), font_size, color);
+                    paint_math_commands(
+                        &painter,
+                        commands,
+                        egui::pos2(x, math_y),
+                        font_size,
+                        color,
+                    );
                 }
             } else {
                 let galley = painter.layout_no_wrap(
@@ -573,7 +583,7 @@ pub fn render_inline_math_line(
             x += part.width;
         }
     }
-    
+
     total_width
 }
 
@@ -583,14 +593,20 @@ pub fn render_inline_math_line(
 fn parse_simple_inline_math(text: &str) -> Vec<(bool, String)> {
     let mut result = Vec::new();
     let mut remaining = text;
-    
+
     while !remaining.is_empty() {
         // Find the earliest math delimiter
         let dollar_pos = remaining.find('$');
         let paren_pos = remaining.find("\\(");
-        
+
         let (delim_type, start_pos) = match (dollar_pos, paren_pos) {
-            (Some(d), Some(p)) => if d <= p { ("dollar", d) } else { ("paren", p) },
+            (Some(d), Some(p)) => {
+                if d <= p {
+                    ("dollar", d)
+                } else {
+                    ("paren", p)
+                }
+            }
             (Some(d), None) => ("dollar", d),
             (None, Some(p)) => ("paren", p),
             (None, None) => {
@@ -601,16 +617,16 @@ fn parse_simple_inline_math(text: &str) -> Vec<(bool, String)> {
                 break;
             }
         };
-        
+
         // Add text before the delimiter
         if start_pos > 0 {
             result.push((false, remaining[..start_pos].to_string()));
         }
-        
+
         if delim_type == "paren" {
             // \(...\) format
             remaining = &remaining[start_pos + 2..]; // skip \(
-            
+
             if let Some(end_idx) = remaining.find("\\)") {
                 let math = remaining[..end_idx].trim();
                 if !math.is_empty() {
@@ -624,13 +640,13 @@ fn parse_simple_inline_math(text: &str) -> Vec<(bool, String)> {
         } else {
             // $ or $$ format
             remaining = &remaining[start_pos + 1..]; // skip first $
-            
+
             // Check for $$ (display math - but we'll render as inline for titles)
             let is_display = remaining.starts_with('$');
             if is_display {
                 remaining = &remaining[1..]; // skip second $
             }
-            
+
             if is_display {
                 // For $$, find closing $$
                 if let Some(end_idx) = remaining.find("$$") {
@@ -655,7 +671,7 @@ fn parse_simple_inline_math(text: &str) -> Vec<(bool, String)> {
                         break;
                     }
                 }
-                
+
                 if let Some(end_idx) = end {
                     let math = remaining[..end_idx].trim();
                     if !math.is_empty() {
@@ -669,7 +685,7 @@ fn parse_simple_inline_math(text: &str) -> Vec<(bool, String)> {
             }
         }
     }
-    
+
     result
 }
 
@@ -698,8 +714,19 @@ pub fn render_inline_paragraph(
 
     // Break segments into "tokens" - individual words and math expressions
     enum Token {
-        Word { text: String, bold: bool, italic: bool, code: bool, strikethrough: bool },
-        Math { tex: String, commands: Vec<DrawCmd>, width: f32, height: f32 },
+        Word {
+            text: String,
+            bold: bool,
+            italic: bool,
+            code: bool,
+            strikethrough: bool,
+        },
+        Math {
+            tex: String,
+            commands: Vec<DrawCmd>,
+            width: f32,
+            height: f32,
+        },
         MathFallback(String),
         Space,
     }
@@ -725,7 +752,13 @@ pub fn render_inline_paragraph(
                     }
                 }
             }
-            Segment::StyledText { text, bold, italic, code, strikethrough } => {
+            Segment::StyledText {
+                text,
+                bold,
+                italic,
+                code,
+                strikethrough,
+            } => {
                 let text = text.replace('\n', " ");
                 for (i, word) in text.split(' ').enumerate() {
                     if i > 0 {
@@ -768,11 +801,7 @@ pub fn render_inline_paragraph(
                 } else {
                     egui::FontId::proportional(text_size)
                 };
-                let galley = ui.painter().layout_no_wrap(
-                    text.clone(),
-                    font,
-                    color,
-                );
+                let galley = ui.painter().layout_no_wrap(text.clone(), font, color);
                 galley.size().x
             }
             Token::Math { width, .. } => *width,
@@ -795,7 +824,10 @@ pub fn render_inline_paragraph(
         width: f32,
     }
 
-    let mut lines: Vec<Line> = vec![Line { tokens: Vec::new(), width: 0.0 }];
+    let mut lines: Vec<Line> = vec![Line {
+        tokens: Vec::new(),
+        width: 0.0,
+    }];
 
     for (i, token) in tokens.iter().enumerate() {
         let w = measured[i];
@@ -811,7 +843,10 @@ pub fn render_inline_paragraph(
             if matches!(token, Token::Space) {
                 continue;
             }
-            lines.push(Line { tokens: vec![i], width: w });
+            lines.push(Line {
+                tokens: vec![i],
+                width: w,
+            });
         } else {
             current_line.tokens.push(i);
             current_line.width += w;
@@ -822,10 +857,8 @@ pub fn render_inline_paragraph(
     let total_height = lines.len() as f32 * line_height;
 
     // Allocate space
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(max_width, total_height),
-        egui::Sense::hover(),
-    );
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(max_width, total_height), egui::Sense::hover());
 
     if !ui.is_rect_visible(rect) {
         return;
@@ -842,14 +875,20 @@ pub fn render_inline_paragraph(
         for &token_idx in &line.tokens {
             let token = &tokens[token_idx];
             match token {
-                Token::Word { text, bold, italic, code, strikethrough } => {
+                Token::Word {
+                    text,
+                    bold,
+                    italic,
+                    code,
+                    strikethrough,
+                } => {
                     // Build the appropriate font
                     let font = if *code {
                         egui::FontId::monospace(text_size)
                     } else {
                         egui::FontId::proportional(text_size)
                     };
-                    
+
                     // Create a LayoutJob for styled text
                     let mut job = egui::text::LayoutJob::default();
                     let mut text_format = egui::TextFormat {
@@ -857,26 +896,26 @@ pub fn render_inline_paragraph(
                         color,
                         ..Default::default()
                     };
-                    
+
                     // Apply strikethrough
                     if *strikethrough {
                         text_format.strikethrough = egui::Stroke::new(1.0, color);
                     }
-                    
+
                     // Apply code background
                     if *code {
                         text_format.background = color.gamma_multiply(0.1);
                     }
-                    
+
                     job.append(text, 0.0, text_format);
-                    
+
                     let galley = painter.layout_job(job);
                     let text_y = baseline_y - galley.size().y * 0.8;
-                    
+
                     // For bold/italic we need to simulate since egui doesn't have real bold/italic
                     // We'll draw the text, and for bold draw it again slightly offset
                     painter.galley(egui::pos2(x, text_y), galley.clone(), color);
-                    
+
                     if *bold {
                         // Fake bold by drawing again with slight offset
                         let mut bold_job = egui::text::LayoutJob::default();
@@ -894,19 +933,30 @@ pub fn render_inline_paragraph(
                         let bold_galley = painter.layout_job(bold_job);
                         painter.galley(egui::pos2(x + 0.5, text_y), bold_galley, color);
                     }
-                    
+
                     if *italic {
-                        // For italic, we can't easily do a transform, so we'll rely on the 
+                        // For italic, we can't easily do a transform, so we'll rely on the
                         // text having visual distinction in other ways, or just note it
                         // egui doesn't support text shear transforms easily
                     }
-                    
+
                     x += galley.size().x;
                 }
-                Token::Math { commands, width, height, .. } => {
+                Token::Math {
+                    commands,
+                    width,
+                    height,
+                    ..
+                } => {
                     // Center math vertically on the line
                     let math_y = y + (line_height - height) / 2.0;
-                    paint_math_commands(&painter, commands, egui::pos2(x, math_y), math_size, color);
+                    paint_math_commands(
+                        &painter,
+                        commands,
+                        egui::pos2(x, math_y),
+                        math_size,
+                        color,
+                    );
                     x += width;
                 }
                 Token::MathFallback(text) => {
@@ -1135,9 +1185,7 @@ pub fn split_into_blocks(content: &str) -> Vec<Block> {
             _ => {
                 // Collect a run of Text + InlineMath
                 let run_start = i;
-                while i < segments.len()
-                    && !matches!(&segments[i], Segment::DisplayMath(_))
-                {
+                while i < segments.len() && !matches!(&segments[i], Segment::DisplayMath(_)) {
                     i += 1;
                 }
                 let run = &segments[run_start..i];
@@ -1161,30 +1209,38 @@ pub fn split_into_blocks(content: &str) -> Vec<Block> {
                                 if let Some(nl_pos) = remaining.find('\n') {
                                     let before = &remaining[..nl_pos];
                                     let after = &remaining[nl_pos + 1..];
-                                    
+
                                     // Check if this is a paragraph break (\n\n) or list item boundary
                                     let is_para_break = after.starts_with('\n');
                                     let next_line_is_list = {
                                         let trimmed = after.trim_start();
-                                        trimmed.starts_with("- ") 
+                                        trimmed.starts_with("- ")
                                             || trimmed.starts_with("* ")
-                                            || (trimmed.len() > 2 
-                                                && trimmed.as_bytes().first().map(|b| b.is_ascii_digit()).unwrap_or(false)
+                                            || (trimmed.len() > 2
+                                                && trimmed
+                                                    .as_bytes()
+                                                    .first()
+                                                    .map(|b| b.is_ascii_digit())
+                                                    .unwrap_or(false)
                                                 && trimmed.contains(". "))
                                     };
                                     let current_is_list = {
                                         let trimmed = before.trim_start();
-                                        trimmed.starts_with("- ") 
+                                        trimmed.starts_with("- ")
                                             || trimmed.starts_with("* ")
-                                            || (trimmed.len() > 2 
-                                                && trimmed.as_bytes().first().map(|b| b.is_ascii_digit()).unwrap_or(false)
+                                            || (trimmed.len() > 2
+                                                && trimmed
+                                                    .as_bytes()
+                                                    .first()
+                                                    .map(|b| b.is_ascii_digit())
+                                                    .unwrap_or(false)
                                                 && trimmed.contains(". "))
                                     };
-                                    
+
                                     if !before.is_empty() {
                                         current_para.push(Segment::Text(before.to_string()));
                                     }
-                                    
+
                                     if is_para_break || next_line_is_list || current_is_list {
                                         flush_paragraph(&mut blocks, &mut current_para);
                                         // Skip extra newline for \n\n case
@@ -1238,7 +1294,13 @@ fn flush_paragraph(blocks: &mut Vec<Block>, para: &mut Vec<Segment>) {
         // Has inline math - check if the text parts have block-level markdown
         let first_text = para
             .iter()
-            .find_map(|s| if let Segment::Text(t) = s { Some(t.as_str()) } else { None })
+            .find_map(|s| {
+                if let Segment::Text(t) = s {
+                    Some(t.as_str())
+                } else {
+                    None
+                }
+            })
             .unwrap_or("");
         let trimmed = first_text.trim_start();
 
@@ -1256,8 +1318,11 @@ fn flush_paragraph(blocks: &mut Vec<Block>, para: &mut Vec<Segment>) {
         }
 
         // Check if this is a list item with math (- or * or 1. prefix)
-        if trimmed.starts_with("- ") || trimmed.starts_with("* ") ||
-           (trimmed.len() > 2 && trimmed.as_bytes()[0].is_ascii_digit() && trimmed.contains(". "))
+        if trimmed.starts_with("- ")
+            || trimmed.starts_with("* ")
+            || (trimmed.len() > 2
+                && trimmed.as_bytes()[0].is_ascii_digit()
+                && trimmed.contains(". "))
         {
             let mut segments: Vec<Segment> = para.drain(..).collect();
             if let Some(Segment::Text(ref mut t)) = segments.first_mut() {
@@ -1295,9 +1360,7 @@ fn flush_paragraph(blocks: &mut Vec<Block>, para: &mut Vec<Segment>) {
                         blocks.push(Block::Markdown(t));
                     }
                     Segment::InlineMath(tex) => {
-                        blocks.push(Block::InlineMathParagraph(vec![
-                            Segment::InlineMath(tex),
-                        ]));
+                        blocks.push(Block::InlineMathParagraph(vec![Segment::InlineMath(tex)]));
                     }
                     _ => {}
                 }

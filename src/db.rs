@@ -17,8 +17,8 @@ impl Database {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating config dir {:?}", parent))?;
         }
-        let conn = Connection::open(&path)
-            .with_context(|| format!("opening database at {:?}", path))?;
+        let conn =
+            Connection::open(&path).with_context(|| format!("opening database at {:?}", path))?;
 
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
 
@@ -72,14 +72,8 @@ impl Database {
                 system_prompt: row.get(2)?,
                 model_id: row.get(3)?,
                 region: row.get(4)?,
-                created_at: row
-                    .get::<_, String>(5)?
-                    .parse()
-                    .unwrap_or_default(),
-                updated_at: row
-                    .get::<_, String>(6)?
-                    .parse()
-                    .unwrap_or_default(),
+                created_at: row.get::<_, String>(5)?.parse().unwrap_or_default(),
+                updated_at: row.get::<_, String>(6)?.parse().unwrap_or_default(),
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
@@ -127,10 +121,7 @@ impl Database {
                 conversation_id: row.get(1)?,
                 role: Role::from_str(&row.get::<_, String>(2)?),
                 content: row.get(3)?,
-                created_at: row
-                    .get::<_, String>(4)?
-                    .parse()
-                    .unwrap_or_default(),
+                created_at: row.get::<_, String>(4)?.parse().unwrap_or_default(),
                 version: 0,
             })
         })?;
